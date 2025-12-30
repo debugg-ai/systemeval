@@ -181,6 +181,7 @@ class TemplateRenderer:
             "pipeline_ci": "Pipeline eval CI format",
             "pipeline_github": "Pipeline eval GitHub annotations",
             "pipeline_markdown": "Pipeline eval markdown report",
+            "pipeline_diagnostic": "Pipeline eval detailed diagnostics",
         }
 
         # Add custom templates
