@@ -291,6 +291,92 @@ All projects passed pipeline evaluation.
 {% endif %}
 """,
 
+    # =========================================================================
+    # MULTI-ENVIRONMENT TEMPLATES
+    # =========================================================================
+    # These templates are designed for multi-environment test runs
+    # (backend, frontend, full-stack orchestration).
+
+    # -------------------------------------------------------------------------
+    # ENV_SUMMARY: One-line summary for environment-based testing
+    # -------------------------------------------------------------------------
+    "env_summary": """\
+[{{ verdict }}] {{ env_name | upper }} ({{ env_type }}) | {{ passed }}/{{ total }} passed | {{ duration | round(1) }}s
+""",
+
+    # -------------------------------------------------------------------------
+    # ENV_TABLE: Detailed table for multi-environment results
+    # -------------------------------------------------------------------------
+    "env_table": """\
+================================================================================
+ SYSTEMEVAL TEST REPORT
+================================================================================
+Environment: {{ env_name }}
+Type:        {{ env_type }}
+Duration:    {{ duration | round(1) }}s
+
++----------------+----------+--------+--------+--------+
+| Phase          | Duration | Status | Detail | Result |
++----------------+----------+--------+--------+--------+
+| Build          | {{ timings.build | round(1) | string | ljust(8) }}s| {{ build_status | ljust(6) }} | {{ build_detail | truncate(6) | ljust(6) }} | {{ 'PASS' if build_success else 'FAIL' | ljust(6) }} |
+| Startup        | {{ timings.startup | round(1) | string | ljust(8) }}s| {{ startup_status | ljust(6) }} | -      | {{ 'PASS' if startup_success else 'FAIL' | ljust(6) }} |
+| Health Check   | {{ timings.health_check | round(1) | string | ljust(8) }}s| {{ health_status | ljust(6) }} | -      | {{ 'PASS' if health_success else 'FAIL' | ljust(6) }} |
+| Tests          | {{ timings.tests | round(1) | string | ljust(8) }}s| {{ test_status | ljust(6) }} | {{ passed }}/{{ total | ljust(4) }} | {{ 'PASS' if verdict == 'PASS' else 'FAIL' | ljust(6) }} |
+| Cleanup        | {{ timings.cleanup | round(1) | string | ljust(8) }}s| done   | -      | -      |
++----------------+----------+--------+--------+--------+
+
+VERDICT: {{ verdict }}
+{% if failures %}
+Failed Tests:
+{% for failure in failures %}  - {{ failure.test_name }}: {{ failure.message | truncate(50) }}
+{% endfor %}{% endif %}
+Exit Code: {{ exit_code }}
+================================================================================
+""",
+
+    # -------------------------------------------------------------------------
+    # ENV_CI: CI format for environment-based testing
+    # -------------------------------------------------------------------------
+    "env_ci": """\
+================================================================================
+SYSTEMEVAL ENVIRONMENT TEST RESULTS
+================================================================================
+Verdict:     {{ verdict }}
+Environment: {{ env_name }} ({{ env_type }})
+Duration:    {{ duration | round(1) }}s
+Exit Code:   {{ exit_code }}
+Timestamp:   {{ timestamp }}
+--------------------------------------------------------------------------------
+PHASE TIMINGS
+--------------------------------------------------------------------------------
+Build:       {{ timings.build | round(1) }}s
+Startup:     {{ timings.startup | round(1) }}s
+Health:      {{ timings.health_check | round(1) }}s
+Tests:       {{ timings.tests | round(1) }}s
+Cleanup:     {{ timings.cleanup | round(1) }}s
+--------------------------------------------------------------------------------
+TEST COUNTS
+--------------------------------------------------------------------------------
+Total:       {{ total }}
+Passed:      {{ passed }}
+Failed:      {{ failed }}
+Errors:      {{ errors }}
+Skipped:     {{ skipped }}
+--------------------------------------------------------------------------------
+{% if failures %}
+FAILURES ({{ failures | length }})
+--------------------------------------------------------------------------------
+{% for failure in failures %}
+[{{ loop.index }}] {{ failure.test_id }}
+    Duration: {{ failure.duration | round(3) }}s
+    Message:  {{ failure.message | truncate(200) | replace('\n', ' ') }}
+{% endfor %}
+--------------------------------------------------------------------------------
+{% endif %}
+RESULT: {{ verdict }}
+================================================================================
+""",
+
     # -------------------------------------------------------------------------
     # PIPELINE_DIAGNOSTIC: Detailed diagnostic output for debugging
     # -------------------------------------------------------------------------

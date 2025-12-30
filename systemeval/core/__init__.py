@@ -45,6 +45,17 @@ from .criteria import (
 )
 from .reporter import Reporter, create_reporter
 from .result import MetricResult, SequenceResult, SessionResult, Verdict
+from .evaluation import (
+    EvaluationResult,
+    EvaluationMetadata,
+    SessionResult as EvalSessionResult,
+    MetricResult as EvalMetricResult,
+    Verdict as EvalVerdict,
+    create_evaluation,
+    create_session,
+    metric,
+    SCHEMA_VERSION,
+)
 
 __all__ = [
     # Config
@@ -86,9 +97,16 @@ __all__ = [
     # Reporter
     "Reporter",
     "create_reporter",
-    # Result
+    # Result (legacy)
     "Verdict",
     "MetricResult",
     "SessionResult",
     "SequenceResult",
+    # Evaluation (unified schema)
+    "EvaluationResult",
+    "EvaluationMetadata",
+    "create_evaluation",
+    "create_session",
+    "metric",
+    "SCHEMA_VERSION",
 ]

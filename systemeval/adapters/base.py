@@ -2,9 +2,17 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
+
+# Import unified evaluation schema
+from systemeval.core.evaluation import (
+    EvaluationResult,
+    create_evaluation,
+    create_session,
+    metric,
+)
 
 
 class Verdict(str, Enum):
@@ -51,7 +59,7 @@ class TestResult:
     exit_code: int = 0
     coverage_percent: Optional[float] = None
     category: Optional[str] = None
-    timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat() + "Z")
+    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
 
     def __post_init__(self) -> None:
         """Calculate total if not provided."""
@@ -91,6 +99,81 @@ class TestResult:
             "category": self.category,
             "coverage_percent": self.coverage_percent,
         }
+
+    def to_evaluation(
+        self,
+        adapter_type: str = "unknown",
+        project_name: Optional[str] = None,
+    ) -> EvaluationResult:
+        """
+        Convert TestResult to unified EvaluationResult.
+
+        This provides backward compatibility while migrating to the
+        unified schema.
+        """
+        result = create_evaluation(
+            adapter_type=adapter_type,
+            category=self.category,
+            project_name=project_name,
+        )
+
+        # Create session from test results
+        session = create_session(self.category or "tests")
+
+        # Add core metrics
+        session.metrics.append(metric(
+            name="tests_passed",
+            value=self.passed,
+            expected=">0",
+            condition=self.passed > 0 or self.total == 0,
+            message=f"{self.passed} tests passed",
+        ))
+
+        session.metrics.append(metric(
+            name="tests_failed",
+            value=self.failed,
+            expected="0",
+            condition=self.failed == 0,
+            message=f"{self.failed} tests failed" if self.failed else None,
+        ))
+
+        session.metrics.append(metric(
+            name="tests_errors",
+            value=self.errors,
+            expected="0",
+            condition=self.errors == 0,
+            message=f"{self.errors} test errors" if self.errors else None,
+        ))
+
+        if self.coverage_percent is not None:
+            session.metrics.append(metric(
+                name="coverage_percent",
+                value=self.coverage_percent,
+                expected=">=0",
+                condition=True,  # Coverage is informational
+                message=f"{self.coverage_percent:.1f}% coverage",
+                severity="info",
+            ))
+
+        session.duration_seconds = self.duration
+
+        # Add failure details to session metadata
+        if self.failures:
+            session.metadata["failures"] = [
+                {
+                    "test_id": f.test_id,
+                    "test_name": f.test_name,
+                    "message": f.message,
+                    "duration": f.duration,
+                }
+                for f in self.failures
+            ]
+
+        result.add_session(session)
+        result.metadata.duration_seconds = self.duration
+        result.finalize()
+
+        return result
 
 
 class BaseAdapter(ABC):

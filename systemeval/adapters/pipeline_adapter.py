@@ -20,6 +20,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .base import BaseAdapter, TestFailure, TestItem, TestResult
+from systemeval.core.evaluation import (
+    EvaluationResult,
+    create_evaluation,
+    create_session,
+    metric,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -255,6 +261,7 @@ class PipelineAdapter(BaseAdapter):
         failed = 0
         errors = 0
         failures = []
+        results_by_project = {}  # Store metrics for detailed evaluation
 
         for test in tests:
             if verbose:
@@ -275,6 +282,9 @@ class PipelineAdapter(BaseAdapter):
                     verbose=verbose,
                 )
                 session_duration = time.time() - session_start
+
+                # Store metrics for detailed evaluation
+                results_by_project[test.id] = metrics
 
                 # Check if metrics pass criteria
                 if self._metrics_pass(metrics):
@@ -323,7 +333,7 @@ class PipelineAdapter(BaseAdapter):
 
         duration = time.time() - start_time
 
-        return TestResult(
+        result = TestResult(
             passed=passed,
             failed=failed,
             errors=errors,
@@ -332,6 +342,13 @@ class PipelineAdapter(BaseAdapter):
             failures=failures,
             exit_code=0 if errors == 0 and failed == 0 else 1,
         )
+
+        # Store tests and metrics for detailed evaluation result generation
+        result._pipeline_tests = tests
+        result._pipeline_metrics = results_by_project
+        result._pipeline_adapter = self
+
+        return result
 
     def get_available_markers(self) -> List[str]:
         """Return available test markers/categories.
@@ -924,3 +941,132 @@ class PipelineAdapter(BaseAdapter):
         )
 
         return metrics
+
+    def create_evaluation_result(
+        self,
+        tests: List[TestItem],
+        results_by_project: Dict[str, Dict[str, Any]],
+        duration: float,
+    ) -> EvaluationResult:
+        """Create a detailed EvaluationResult from pipeline metrics.
+
+        Args:
+            tests: List of test items (projects evaluated)
+            results_by_project: Metrics dictionary keyed by project id
+            duration: Total evaluation duration
+
+        Returns:
+            EvaluationResult with detailed session and metric data
+        """
+        evaluation = create_evaluation(
+            adapter_type="pipeline",
+            category="pipeline",
+            project_name="debuggai",
+        )
+
+        for test in tests:
+            metrics = results_by_project.get(test.id, {})
+            session = create_session(test.name)
+
+            # Build metrics
+            session.metrics.append(metric(
+                name="build_status",
+                value=metrics.get("build_status", "unknown"),
+                expected="succeeded",
+                condition=metrics.get("build_status") == "succeeded",
+                message=f"Build {metrics.get('build_status', 'unknown')}",
+            ))
+
+            if metrics.get("build_duration"):
+                session.metrics.append(metric(
+                    name="build_duration",
+                    value=metrics.get("build_duration"),
+                    expected="<300",
+                    condition=True,  # Informational
+                    message=f"Build took {metrics.get('build_duration'):.1f}s",
+                    severity="info",
+                ))
+
+            # Container metrics
+            session.metrics.append(metric(
+                name="container_healthy",
+                value=metrics.get("container_healthy", False),
+                expected=True,
+                condition=metrics.get("container_healthy", False) is True,
+                message="Container healthy" if metrics.get("container_healthy") else "Container not healthy",
+            ))
+
+            # Knowledge graph metrics
+            session.metrics.append(metric(
+                name="kg_exists",
+                value=metrics.get("kg_exists", False),
+                expected=True,
+                condition=metrics.get("kg_exists", False) is True,
+                message="Knowledge graph exists" if metrics.get("kg_exists") else "No knowledge graph",
+            ))
+
+            session.metrics.append(metric(
+                name="kg_pages",
+                value=metrics.get("kg_pages", 0),
+                expected=">0",
+                condition=metrics.get("kg_pages", 0) > 0,
+                message=f"Knowledge graph has {metrics.get('kg_pages', 0)} pages",
+            ))
+
+            # E2E metrics
+            e2e_runs = metrics.get("e2e_runs", 0)
+            e2e_error_rate = metrics.get("e2e_error_rate", 0.0)
+
+            session.metrics.append(metric(
+                name="e2e_runs",
+                value=e2e_runs,
+                expected=">=0",
+                condition=True,  # Informational
+                message=f"{e2e_runs} E2E runs executed",
+                severity="info",
+            ))
+
+            session.metrics.append(metric(
+                name="e2e_error_rate",
+                value=e2e_error_rate,
+                expected="0",
+                condition=e2e_error_rate == 0 or e2e_error_rate == 0.0,
+                message=f"E2E error rate: {e2e_error_rate}%" if e2e_error_rate > 0 else "No E2E errors",
+            ))
+
+            if metrics.get("e2e_passed", 0) > 0 or metrics.get("e2e_failed", 0) > 0:
+                session.metrics.append(metric(
+                    name="e2e_passed",
+                    value=metrics.get("e2e_passed", 0),
+                    expected=">=0",
+                    condition=True,
+                    message=f"{metrics.get('e2e_passed', 0)} E2E tests passed",
+                    severity="info",
+                ))
+
+                session.metrics.append(metric(
+                    name="e2e_failed",
+                    value=metrics.get("e2e_failed", 0),
+                    expected="0",
+                    condition=metrics.get("e2e_failed", 0) == 0,
+                    message=f"{metrics.get('e2e_failed', 0)} E2E tests failed" if metrics.get("e2e_failed", 0) > 0 else None,
+                ))
+
+            # Add diagnostics to session metadata
+            if metrics.get("diagnostics"):
+                session.metadata["diagnostics"] = metrics["diagnostics"]
+
+            # Add pipeline stage details
+            if metrics.get("pipeline_stages"):
+                session.metadata["pipeline_stages"] = metrics["pipeline_stages"]
+
+            # Add surfer summary
+            if metrics.get("surfers"):
+                session.metadata["surfers"] = metrics["surfers"]
+
+            evaluation.add_session(session)
+
+        evaluation.metadata.duration_seconds = duration
+        evaluation.finalize()
+
+        return evaluation

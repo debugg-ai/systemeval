@@ -2,10 +2,10 @@
 Configuration loading and validation for systemeval.
 """
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class TestCategory(BaseModel):
@@ -15,6 +15,48 @@ class TestCategory(BaseModel):
     test_match: List[str] = Field(default_factory=list)
     paths: List[str] = Field(default_factory=list)
     requires: List[str] = Field(default_factory=list)
+
+
+class HealthCheckConfig(BaseModel):
+    """Health check configuration for Docker environments."""
+    service: str = Field(..., description="Service to health check")
+    endpoint: str = Field(default="/api/v1/health/", description="Health endpoint path")
+    port: int = Field(default=8000, description="Port to check")
+    timeout: int = Field(default=120, description="Timeout in seconds")
+
+
+class EnvironmentConfig(BaseModel):
+    """Base environment configuration."""
+    type: Literal["standalone", "docker-compose", "composite"] = "standalone"
+    test_command: str = Field(default="", description="Command to run tests")
+    working_dir: str = Field(default=".", description="Working directory")
+    default: bool = Field(default=False, description="Is this the default environment")
+
+
+class StandaloneEnvConfig(EnvironmentConfig):
+    """Configuration for standalone (non-Docker) environments."""
+    type: Literal["standalone"] = "standalone"
+    command: str = Field(default="", description="Command to start the service")
+    ready_pattern: str = Field(default="", description="Regex pattern indicating ready")
+    port: int = Field(default=3000, description="Port the service runs on")
+    env: Dict[str, str] = Field(default_factory=dict, description="Environment variables")
+
+
+class DockerComposeEnvConfig(EnvironmentConfig):
+    """Configuration for Docker Compose environments."""
+    type: Literal["docker-compose"] = "docker-compose"
+    compose_file: str = Field(default="docker-compose.yml", description="Compose file path")
+    services: List[str] = Field(default_factory=list, description="Services to start")
+    test_service: str = Field(default="django", description="Service to run tests in")
+    health_check: Optional[HealthCheckConfig] = None
+    project_name: Optional[str] = None
+    skip_build: bool = Field(default=False, description="Skip building images")
+
+
+class CompositeEnvConfig(EnvironmentConfig):
+    """Configuration for composite (multi-environment) setups."""
+    type: Literal["composite"] = "composite"
+    depends_on: List[str] = Field(default_factory=list, description="Required environments")
 
 
 class PytestConfig(BaseModel):
@@ -35,7 +77,7 @@ class PipelineConfig(BaseModel):
 
 class SystemEvalConfig(BaseModel):
     """Main configuration model."""
-    adapter: str = Field(..., description="Test adapter to use (pytest, jest, pipeline)")
+    adapter: str = Field(default="pytest", description="Test adapter to use (pytest, jest, pipeline)")
     project_root: Path = Field(default=Path("."), description="Project root directory")
     test_directory: Path = Field(default=Path("tests"), description="Test directory path")
     categories: Dict[str, TestCategory] = Field(default_factory=dict)
@@ -43,6 +85,10 @@ class SystemEvalConfig(BaseModel):
     pytest_config: Optional[PytestConfig] = None
     pipeline_config: Optional[PipelineConfig] = None
     project_name: Optional[str] = None
+    environments: Dict[str, Dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Environment configurations for multi-env testing"
+    )
 
     @field_validator("adapter")
     @classmethod
@@ -60,6 +106,19 @@ class SystemEvalConfig(BaseModel):
     def validate_paths(cls, v: Any) -> Path:
         """Ensure paths are Path objects."""
         return Path(v) if not isinstance(v, Path) else v
+
+    @model_validator(mode="after")
+    def validate_composite_deps(self) -> "SystemEvalConfig":
+        """Validate that composite environment dependencies exist."""
+        for name, env_config in self.environments.items():
+            if env_config.get("type") == "composite":
+                deps = env_config.get("depends_on", [])
+                for dep in deps:
+                    if dep not in self.environments:
+                        raise ValueError(
+                            f"Environment '{name}' depends on '{dep}' which is not defined"
+                        )
+        return self
 
 
 def find_config_file(start_path: Optional[Path] = None) -> Optional[Path]:
@@ -151,5 +210,17 @@ def load_config(config_path: Path) -> SystemEvalConfig:
             else:
                 categories[name] = TestCategory()
         normalized["categories"] = categories
+
+    # Extract environments configuration
+    if "environments" in raw_config:
+        environments = raw_config["environments"]
+        if isinstance(environments, dict):
+            # Inject working_dir relative to config file if not absolute
+            for name, env_config in environments.items():
+                if isinstance(env_config, dict):
+                    working_dir = env_config.get("working_dir", ".")
+                    if not Path(working_dir).is_absolute():
+                        env_config["working_dir"] = str(config_path.parent / working_dir)
+            normalized["environments"] = environments
 
     return SystemEvalConfig(**normalized)

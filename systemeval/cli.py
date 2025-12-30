@@ -20,6 +20,111 @@ console = Console()
 _builtin_list = list
 
 
+def _run_with_environment(
+    test_config: "SystemEvalConfig",
+    env_name: Optional[str],
+    suite: Optional[str],
+    category: Optional[str],
+    verbose: bool,
+    keep_running: bool,
+    skip_build: bool,
+    json_output: bool,
+) -> "TestResult":
+    """Run tests using environment orchestration."""
+    from systemeval.environments import EnvironmentResolver
+
+    # Resolve environment
+    resolver = EnvironmentResolver(test_config.environments)
+
+    if not test_config.environments:
+        console.print("[red]Error:[/red] No environments configured in systemeval.yaml")
+        console.print("Add an 'environments' section to your configuration")
+        import sys
+        sys.exit(2)
+
+    # Get environment name
+    if not env_name:
+        env_name = resolver.get_default_environment()
+        if not env_name:
+            console.print("[red]Error:[/red] No default environment found")
+            import sys
+            sys.exit(2)
+
+    try:
+        env = resolver.resolve(env_name)
+    except KeyError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        available = ", ".join(resolver.list_environments().keys())
+        console.print(f"Available environments: {available}")
+        import sys
+        sys.exit(2)
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        import sys
+        sys.exit(2)
+
+    # Inject skip_build if applicable
+    if skip_build and hasattr(env, 'skip_build'):
+        env.skip_build = skip_build
+
+    if not json_output:
+        console.print(f"[bold cyan]Running tests in '{env_name}' environment ({env.env_type.value})[/bold cyan]")
+        if suite:
+            console.print(f"[dim]Suite: {suite}[/dim]")
+        console.print()
+
+    # Run with context manager for clean setup/teardown
+    try:
+        if not json_output:
+            console.print("[dim]Setting up environment...[/dim]")
+
+        setup_result = env.setup()
+        if not setup_result.success:
+            console.print(f"[red]Setup failed:[/red] {setup_result.message}")
+            from systemeval.adapters import TestResult
+            return TestResult(
+                passed=0, failed=0, errors=1, skipped=0,
+                duration=setup_result.duration, exit_code=2
+            )
+
+        if not json_output:
+            console.print(f"[green]Environment started[/green] ({setup_result.duration:.1f}s)")
+            console.print("[dim]Waiting for services to be ready...[/dim]")
+
+        if not env.wait_ready():
+            console.print("[red]Error:[/red] Environment did not become ready within timeout")
+            env.teardown()
+            from systemeval.adapters import TestResult
+            return TestResult(
+                passed=0, failed=0, errors=1, skipped=0,
+                duration=env.timings.startup + env.timings.health_check,
+                exit_code=2
+            )
+
+        if not json_output:
+            console.print(f"[green]Services ready[/green] ({env.timings.health_check:.1f}s)")
+            console.print("[dim]Running tests...[/dim]")
+            console.print()
+
+        # Run tests
+        results = env.run_tests(suite=suite, category=category, verbose=verbose)
+
+        return results
+
+    finally:
+        if not keep_running:
+            if not json_output:
+                console.print()
+                console.print("[dim]Tearing down environment...[/dim]")
+            env.teardown(keep_running=keep_running)
+            if not json_output:
+                console.print(f"[dim]Cleanup complete ({env.timings.cleanup:.1f}s)[/dim]")
+        else:
+            if not json_output:
+                console.print()
+                console.print("[yellow]Keeping environment running (--keep-running)[/yellow]")
+
+
 @click.group()
 @click.version_option(version="0.1.4")
 def main() -> None:
@@ -40,6 +145,10 @@ def main() -> None:
 @click.option('--docker', is_flag=True, help='Force Docker environment')
 @click.option('--no-docker', is_flag=True, help='Force local environment')
 @click.option('--config', type=click.Path(exists=True), help='Path to config file')
+# Environment orchestration options
+@click.option('--env', '-e', 'env_name', help='Environment to run tests in (backend, frontend, full-stack)')
+@click.option('--suite', '-s', help='Test suite to run (e2e, integration, unit)')
+@click.option('--keep-running', is_flag=True, help='Keep containers/services running after tests')
 # Pipeline adapter specific options
 @click.option('--projects', multiple=True, help='Project slugs to evaluate (pipeline adapter)')
 @click.option('--timeout', type=int, help='Max wait time per project in seconds (pipeline adapter)')
@@ -59,6 +168,10 @@ def test(
     docker: bool,
     no_docker: bool,
     config: Optional[str],
+    # Environment options
+    env_name: Optional[str],
+    suite: Optional[str],
+    keep_running: bool,
     # Pipeline options
     projects: tuple,
     timeout: Optional[int],
@@ -66,7 +179,7 @@ def test(
     sync: bool,
     skip_build: bool,
 ) -> None:
-    """Run tests using the configured adapter."""
+    """Run tests using the configured adapter or environment."""
     try:
         # Load configuration
         config_path = Path(config) if config else find_config_file()
@@ -97,58 +210,85 @@ def test(
             console.print(f"[dim]Environment: {environment}[/dim]")
             console.print(f"[dim]Config: {config_path}[/dim]")
 
-        # Get adapter
-        try:
-            adapter = get_adapter(test_config.adapter, str(test_config.project_root.absolute()))
-        except (KeyError, ValueError) as e:
-            console.print(f"[red]Error:[/red] {e}")
-            sys.exit(2)
+        # Check if using environment-based testing
+        if env_name or test_config.environments:
+            results = _run_with_environment(
+                test_config=test_config,
+                env_name=env_name,
+                suite=suite,
+                category=category,
+                verbose=verbose,
+                keep_running=keep_running,
+                skip_build=skip_build,
+                json_output=json_output,
+            )
+        else:
+            # Legacy adapter-based testing
+            # Get adapter
+            try:
+                adapter = get_adapter(test_config.adapter, str(test_config.project_root.absolute()))
+            except (KeyError, ValueError) as e:
+                console.print(f"[red]Error:[/red] {e}")
+                sys.exit(2)
 
-        # Validate environment
-        if not adapter.validate_environment():
-            console.print(f"[yellow]Warning:[/yellow] Test environment validation failed")
+            # Validate environment
+            if not adapter.validate_environment():
+                console.print(f"[yellow]Warning:[/yellow] Test environment validation failed")
 
-        # Run tests
-        if not json_output:
-            console.print(f"[bold cyan]Running tests with {test_config.adapter} adapter[/bold cyan]")
-            if category:
-                console.print(f"[dim]Category: {category}[/dim]")
-            if app:
-                console.print(f"[dim]App: {app}[/dim]")
-            if file_path:
-                console.print(f"[dim]File: {file_path}[/dim]")
-            console.print()
+            # Run tests
+            if not json_output:
+                console.print(f"[bold cyan]Running tests with {test_config.adapter} adapter[/bold cyan]")
+                if category:
+                    console.print(f"[dim]Category: {category}[/dim]")
+                if app:
+                    console.print(f"[dim]App: {app}[/dim]")
+                if file_path:
+                    console.print(f"[dim]File: {file_path}[/dim]")
+                console.print()
 
-        # Build execution kwargs
-        exec_kwargs = {
-            "tests": None,  # Will use category/app/file filters in future
-            "parallel": parallel,
-            "coverage": coverage,
-            "failfast": failfast,
-            "verbose": verbose,
-        }
+            # Build execution kwargs
+            exec_kwargs = {
+                "tests": None,  # Will use category/app/file filters in future
+                "parallel": parallel,
+                "coverage": coverage,
+                "failfast": failfast,
+                "verbose": verbose,
+            }
 
-        # Add pipeline-specific options if using pipeline adapter
-        if test_config.adapter == "pipeline":
-            if projects:
-                exec_kwargs["projects"] = _builtin_list(projects)
-            if timeout:
-                exec_kwargs["timeout"] = timeout
-            if poll_interval:
-                exec_kwargs["poll_interval"] = poll_interval
-            exec_kwargs["sync_mode"] = sync
-            exec_kwargs["skip_build"] = skip_build
+            # Add pipeline-specific options if using pipeline adapter
+            if test_config.adapter == "pipeline":
+                if projects:
+                    exec_kwargs["projects"] = _builtin_list(projects)
+                if timeout:
+                    exec_kwargs["timeout"] = timeout
+                if poll_interval:
+                    exec_kwargs["poll_interval"] = poll_interval
+                exec_kwargs["sync_mode"] = sync
+                exec_kwargs["skip_build"] = skip_build
 
-        # Execute tests using adapter
-        results = adapter.execute(**exec_kwargs)
+            # Execute tests using adapter
+            results = adapter.execute(**exec_kwargs)
 
         # Set category on results for output
         results.category = category or "default"
 
         # Output results
         if json_output:
-            import json
-            console.print(json.dumps(results.to_dict(), indent=2))
+            # Check for pipeline adapter's detailed evaluation
+            if hasattr(results, '_pipeline_adapter') and hasattr(results, '_pipeline_tests'):
+                evaluation = results._pipeline_adapter.create_evaluation_result(
+                    tests=results._pipeline_tests,
+                    results_by_project=results._pipeline_metrics,
+                    duration=results.duration,
+                )
+            else:
+                # Convert to unified EvaluationResult schema
+                evaluation = results.to_evaluation(
+                    adapter_type=test_config.adapter,
+                    project_name=test_config.project_root.name if test_config.project_root else None,
+                )
+                evaluation.finalize()
+            console.print(evaluation.to_json())
         elif template:
             from systemeval.templates import render_results
             output = render_results(results, template_name=template)
@@ -282,6 +422,68 @@ def list_categories(config: Optional[str]) -> None:
             table.add_row(name, description, markers)
 
         console.print(table)
+
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        sys.exit(2)
+
+
+@list.command('environments')
+@click.option('--config', type=click.Path(exists=True), help='Path to config file')
+def list_environments_cmd(config: Optional[str]) -> None:
+    """List available test environments."""
+    try:
+        config_path = Path(config) if config else find_config_file()
+        if not config_path:
+            console.print("[red]Error:[/red] No systemeval.yaml found")
+            sys.exit(2)
+
+        test_config = load_config(config_path)
+
+        if not test_config.environments:
+            console.print("[yellow]No environments defined in configuration[/yellow]")
+            console.print("\nAdd an 'environments' section to your systemeval.yaml:")
+            console.print("""
+[dim]environments:
+  backend:
+    type: docker-compose
+    compose_file: local.yml
+    test_command: pytest
+  frontend:
+    type: standalone
+    command: npm run dev
+    test_command: npm test[/dim]
+""")
+            return
+
+        table = Table(title="Available Environments")
+        table.add_column("Name", style="cyan")
+        table.add_column("Type", style="white")
+        table.add_column("Default", style="dim")
+        table.add_column("Details", style="dim")
+
+        for name, env_config in test_config.environments.items():
+            env_type = env_config.get("type", "standalone")
+            is_default = "Yes" if env_config.get("default", False) else ""
+
+            # Build details string
+            if env_type == "docker-compose":
+                compose_file = env_config.get("compose_file", "docker-compose.yml")
+                services = env_config.get("services", [])
+                details = f"file: {compose_file}"
+                if services:
+                    details += f", services: {len(services)}"
+            elif env_type == "composite":
+                deps = env_config.get("depends_on", [])
+                details = f"depends: {', '.join(deps)}"
+            else:
+                cmd = env_config.get("command", "")
+                details = cmd[:40] + "..." if len(cmd) > 40 else cmd
+
+            table.add_row(name, env_type, is_default, details)
+
+        console.print(table)
+        console.print("\n[dim]Usage: systemeval test --env <name>[/dim]")
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
