@@ -160,6 +160,136 @@ RESULT: {{ verdict }}
 | Duration    | {{ (duration | round(2) | string + 's') | ljust(63) }}|
 +{{ '-' * 78 }}+
 """,
+
+    # =========================================================================
+    # PIPELINE TEMPLATES
+    # =========================================================================
+    # These templates are designed for pipeline evaluation results with
+    # project-level metrics (build, container, knowledge graph, E2E tests).
+
+    # -------------------------------------------------------------------------
+    # PIPELINE_SUMMARY: One-line summary for pipeline evaluation
+    # -------------------------------------------------------------------------
+    "pipeline_summary": """\
+[{{ verdict }}] Pipeline Eval | {{ passed }}/{{ total }} projects passed | {{ duration | round(1) }}s
+{% for failure in failures %}  - {{ failure.test_name }}: {{ failure.message | truncate(60) }}
+{% endfor %}
+""",
+
+    # -------------------------------------------------------------------------
+    # PIPELINE_TABLE: Detailed table matching run_system_eval output
+    # -------------------------------------------------------------------------
+    "pipeline_table": """\
+================================================================================
+PIPELINE EVALUATION RESULTS
+================================================================================
+Duration: {{ duration | round(1) }}s
+Projects: {{ passed }}/{{ total }} passed
+
+Project                  Build        Container  KG Pages   E2E P/F/E    Result
+--------------------------------------------------------------------------------
+{% for failure in failures %}{{ failure.test_name | ljust(24) | truncate(24) }} {{ failure.metadata.build_status | default('none') | ljust(12) }} {{ ('healthy' if failure.metadata.container_healthy else 'unhealthy') | ljust(10) }} {{ failure.metadata.kg_pages | default(0) | string | ljust(10) }} {{ failure.metadata.e2e_passed | default(0) }}/{{ failure.metadata.e2e_failed | default(0) }}/{{ failure.metadata.e2e_errors | default(0) | ljust(8) }} FAIL
+{% endfor %}
+--------------------------------------------------------------------------------
+{% if failures %}
+FAILED CRITERIA:
+{% for failure in failures %}
+  - {{ failure.test_name }}: {{ failure.message }}
+{% endfor %}
+{% endif %}
+================================================================================
+RESULT: {{ verdict }}
+================================================================================
+""",
+
+    # -------------------------------------------------------------------------
+    # PIPELINE_CI: Structured CI format for pipeline evaluation
+    # -------------------------------------------------------------------------
+    "pipeline_ci": """\
+================================================================================
+SYSTEMEVAL PIPELINE RESULTS
+================================================================================
+Verdict:    {{ verdict }}
+Duration:   {{ duration | round(1) }}s
+Exit Code:  {{ exit_code }}
+Timestamp:  {{ timestamp }}
+--------------------------------------------------------------------------------
+PROJECTS
+--------------------------------------------------------------------------------
+Total:      {{ total }}
+Passed:     {{ passed }}
+Failed:     {{ failed }}
+Errors:     {{ errors }}
+--------------------------------------------------------------------------------
+{% if failures %}
+FAILURES ({{ failures | length }})
+--------------------------------------------------------------------------------
+{% for failure in failures %}
+[{{ loop.index }}] {{ failure.test_name }}
+    Build:      {{ failure.metadata.build_status | default('unknown') }}
+    Health:     {{ 'healthy' if failure.metadata.container_healthy else 'unhealthy' }}
+    KG Pages:   {{ failure.metadata.kg_pages | default(0) }}
+    E2E:        {{ failure.metadata.e2e_passed | default(0) }} pass / {{ failure.metadata.e2e_failed | default(0) }} fail / {{ failure.metadata.e2e_error | default(0) }} error
+    Reason:     {{ failure.message }}
+{% endfor %}
+--------------------------------------------------------------------------------
+{% endif %}
+RESULT: {{ verdict }}
+================================================================================
+""",
+
+    # -------------------------------------------------------------------------
+    # PIPELINE_GITHUB: GitHub Actions annotations for pipeline
+    # -------------------------------------------------------------------------
+    "pipeline_github": """\
+{% if verdict == "PASS" %}::notice::{{ verdict_emoji }} Pipeline evaluation passed: {{ passed }}/{{ total }} projects
+{% else %}::error::{{ verdict_emoji }} Pipeline evaluation failed: {{ failed }} projects failed
+{% endif %}
+{% for failure in failures %}::error title={{ failure.test_name }}::{{ failure.message | truncate(100) | replace('\n', ' ') }}
+{% endfor %}
+""",
+
+    # -------------------------------------------------------------------------
+    # PIPELINE_MARKDOWN: Full markdown report for pipeline
+    # -------------------------------------------------------------------------
+    "pipeline_markdown": """\
+# Pipeline Evaluation Results
+
+| Metric | Value |
+|--------|-------|
+| **Verdict** | {{ verdict_emoji }} **{{ verdict }}** |
+| **Projects Evaluated** | {{ total }} |
+| **Passed** | {{ passed }} |
+| **Failed** | {{ failed }} |
+| **Duration** | {{ duration | round(1) }}s |
+| **Timestamp** | {{ timestamp }} |
+
+## Exit Code: {{ exit_code }}
+
+{% if verdict == "PASS" %}
+All projects passed pipeline evaluation.
+{% else %}
+**{{ failed }} project(s) failed evaluation.**
+{% endif %}
+
+{% if failures %}
+## Failed Projects
+
+{% for failure in failures %}
+### {{ failure.test_name }}
+
+| Stage | Status |
+|-------|--------|
+| Build | {{ failure.metadata.build_status | default('unknown') }} |
+| Container | {{ 'healthy' if failure.metadata.container_healthy else 'unhealthy' }} |
+| Knowledge Graph | {{ failure.metadata.kg_pages | default(0) }} pages |
+| E2E Tests | {{ failure.metadata.e2e_passed | default(0) }}P / {{ failure.metadata.e2e_failed | default(0) }}F / {{ failure.metadata.e2e_error | default(0) }}E |
+
+**Failure Reason:** {{ failure.message }}
+
+{% endfor %}
+{% endif %}
+""",
 }
 
 

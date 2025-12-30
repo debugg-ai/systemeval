@@ -16,9 +16,12 @@ from systemeval.plugins.docker import get_environment_type, is_docker_environmen
 
 console = Console()
 
+# Store builtin list before it gets shadowed by the @main.group() named 'list'
+_builtin_list = list
+
 
 @click.group()
-@click.version_option(version="0.1.3")
+@click.version_option(version="0.1.4")
 def main() -> None:
     """SystemEval - Unified test runner CLI."""
     pass
@@ -33,10 +36,16 @@ def main() -> None:
 @click.option('--failfast', '-x', is_flag=True, help='Stop on first failure')
 @click.option('--verbose', '-v', is_flag=True, help='Verbose output')
 @click.option('--json', 'json_output', is_flag=True, help='Output results as JSON')
-@click.option('--template', '-t', help='Output template (summary, markdown, ci, github, junit, slack, table)')
+@click.option('--template', '-t', help='Output template (summary, markdown, ci, github, junit, slack, table, pipeline_*)')
 @click.option('--docker', is_flag=True, help='Force Docker environment')
 @click.option('--no-docker', is_flag=True, help='Force local environment')
 @click.option('--config', type=click.Path(exists=True), help='Path to config file')
+# Pipeline adapter specific options
+@click.option('--projects', multiple=True, help='Project slugs to evaluate (pipeline adapter)')
+@click.option('--timeout', type=int, help='Max wait time per project in seconds (pipeline adapter)')
+@click.option('--poll-interval', type=int, help='Seconds between status checks (pipeline adapter)')
+@click.option('--sync', is_flag=True, help='Run webhooks synchronously (pipeline adapter)')
+@click.option('--skip-build', is_flag=True, help='Skip build, use existing containers (pipeline adapter)')
 def test(
     category: Optional[str],
     app: Optional[str],
@@ -50,6 +59,12 @@ def test(
     docker: bool,
     no_docker: bool,
     config: Optional[str],
+    # Pipeline options
+    projects: tuple,
+    timeout: Optional[int],
+    poll_interval: Optional[int],
+    sync: bool,
+    skip_build: bool,
 ) -> None:
     """Run tests using the configured adapter."""
     try:
@@ -104,14 +119,28 @@ def test(
                 console.print(f"[dim]File: {file_path}[/dim]")
             console.print()
 
+        # Build execution kwargs
+        exec_kwargs = {
+            "tests": None,  # Will use category/app/file filters in future
+            "parallel": parallel,
+            "coverage": coverage,
+            "failfast": failfast,
+            "verbose": verbose,
+        }
+
+        # Add pipeline-specific options if using pipeline adapter
+        if test_config.adapter == "pipeline":
+            if projects:
+                exec_kwargs["projects"] = _builtin_list(projects)
+            if timeout:
+                exec_kwargs["timeout"] = timeout
+            if poll_interval:
+                exec_kwargs["poll_interval"] = poll_interval
+            exec_kwargs["sync_mode"] = sync
+            exec_kwargs["skip_build"] = skip_build
+
         # Execute tests using adapter
-        results = adapter.execute(
-            tests=None,  # Will use category/app/file filters in future
-            parallel=parallel,
-            coverage=coverage,
-            failfast=failfast,
-            verbose=verbose,
-        )
+        results = adapter.execute(**exec_kwargs)
 
         # Set category on results for output
         results.category = category or "default"
@@ -276,6 +305,7 @@ def list_adapters_cmd() -> None:
     adapter_info = {
         "pytest": "Python test framework (pytest)",
         "jest": "JavaScript test framework (jest)",
+        "pipeline": "DebuggAI pipeline evaluation (Django)",
     }
 
     for name in adapters:

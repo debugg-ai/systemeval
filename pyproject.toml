@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "systemeval"
-version = "0.1.3"
+version = "0.1.4"
 description = "Unified test runner CLI with framework-agnostic adapters"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -12,7 +12,7 @@ license = {text = "MIT"}
 authors = [
     {name = "DebuggAI", email = "dev@debugg.ai"}
 ]
-keywords = ["testing", "pytest", "jest", "cli", "test-runner"]
+keywords = ["testing", "pytest", "jest", "cli", "test-runner", "pipeline", "e2e"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
@@ -41,6 +41,10 @@ pytest = [
     "pytest-xdist>=3.0",
 ]
 jest = []
+pipeline = [
+    # Django and related deps are provided by the container environment
+    # This marker indicates pipeline adapter support
+]
 dev = [
     "systemeval[pytest]",
     "black",

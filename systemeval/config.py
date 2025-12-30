@@ -24,14 +24,24 @@ class PytestConfig(BaseModel):
     default_category: str = "unit"
 
 
+class PipelineConfig(BaseModel):
+    """Pipeline adapter specific configuration."""
+    projects: List[str] = Field(default_factory=lambda: ["crochet-patterns"])
+    timeout: int = Field(default=600, description="Max time to wait per project (seconds)")
+    poll_interval: int = Field(default=15, description="Seconds between status checks")
+    sync_mode: bool = Field(default=False, description="Run webhooks synchronously")
+    skip_build: bool = Field(default=False, description="Skip build, use existing containers")
+
+
 class SystemEvalConfig(BaseModel):
     """Main configuration model."""
-    adapter: str = Field(..., description="Test adapter to use (pytest, jest, etc.)")
+    adapter: str = Field(..., description="Test adapter to use (pytest, jest, pipeline)")
     project_root: Path = Field(default=Path("."), description="Project root directory")
     test_directory: Path = Field(default=Path("tests"), description="Test directory path")
     categories: Dict[str, TestCategory] = Field(default_factory=dict)
     adapter_config: Dict[str, Any] = Field(default_factory=dict, description="Adapter-specific config")
     pytest_config: Optional[PytestConfig] = None
+    pipeline_config: Optional[PipelineConfig] = None
     project_name: Optional[str] = None
 
     @field_validator("adapter")
@@ -123,6 +133,14 @@ def load_config(config_path: Path) -> SystemEvalConfig:
             # Set test_directory from base_path
             if "base_path" in pytest_conf:
                 normalized["test_directory"] = pytest_conf["base_path"]
+
+    # Extract pipeline-specific config
+    if "pipeline" in raw_config:
+        pipeline_conf = raw_config["pipeline"]
+        if isinstance(pipeline_conf, dict):
+            normalized["pipeline_config"] = PipelineConfig(**pipeline_conf)
+            # Also store in adapter_config for adapter access
+            normalized["adapter_config"] = {**normalized.get("adapter_config", {}), **pipeline_conf}
 
     # Convert nested dicts to TestCategory objects
     if "categories" in raw_config:

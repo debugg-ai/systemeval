@@ -129,6 +129,14 @@ def _register_builtin_adapters() -> None:
     except ImportError:
         pass
 
+    # Try to register pipeline adapter
+    try:
+        from .pipeline_adapter import PipelineAdapter
+
+        register_adapter("pipeline", PipelineAdapter)
+    except ImportError:
+        pass
+
     # Future: Register jest adapter when implemented
     # try:
     #     from .jest_adapter import JestAdapter

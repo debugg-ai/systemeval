@@ -175,6 +175,12 @@ class TemplateRenderer:
             "junit": "JUnit XML format for test tools",
             "slack": "Slack message format (mrkdwn)",
             "table": "ASCII table format",
+            # Pipeline templates
+            "pipeline_summary": "Pipeline eval one-line summary",
+            "pipeline_table": "Pipeline eval detailed table",
+            "pipeline_ci": "Pipeline eval CI format",
+            "pipeline_github": "Pipeline eval GitHub annotations",
+            "pipeline_markdown": "Pipeline eval markdown report",
         }
 
         # Add custom templates
@@ -219,6 +225,7 @@ def render_results(
                 "message": f.message,
                 "traceback": f.traceback,
                 "duration": f.duration,
+                "metadata": getattr(f, "metadata", {}),
             }
             for f in results.failures
         ]

@@ -34,6 +34,7 @@ class TestFailure:
     message: str
     traceback: Optional[str] = None
     duration: float = 0.0
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
