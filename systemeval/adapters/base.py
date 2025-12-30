@@ -2,7 +2,16 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from datetime import datetime
+from enum import Enum
 from typing import Any, Dict, List, Optional
+
+
+class Verdict(str, Enum):
+    """Deterministic test verdict - no subjective interpretation."""
+    PASS = "PASS"
+    FAIL = "FAIL"
+    ERROR = "ERROR"
 
 
 @dataclass
@@ -29,7 +38,7 @@ class TestFailure:
 
 @dataclass
 class TestResult:
-    """Test execution results."""
+    """Test execution results with objective verdict."""
 
     passed: int
     failed: int
@@ -40,11 +49,47 @@ class TestResult:
     total: int = 0
     exit_code: int = 0
     coverage_percent: Optional[float] = None
+    category: Optional[str] = None
+    timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat() + "Z")
 
     def __post_init__(self) -> None:
         """Calculate total if not provided."""
         if self.total == 0:
             self.total = self.passed + self.failed + self.errors + self.skipped
+
+    @property
+    def verdict(self) -> Verdict:
+        """Determine objective verdict based on results.
+
+        Verdict Logic (cascade, non-negotiable):
+        - exit_code == 2 → ERROR (collection/config error)
+        - total == 0 → ERROR (no tests collected)
+        - failed > 0 or errors > 0 → FAIL
+        - All tests pass → PASS
+        """
+        if self.exit_code == 2:
+            return Verdict.ERROR
+        if self.total == 0:
+            return Verdict.ERROR
+        if self.failed > 0 or self.errors > 0:
+            return Verdict.FAIL
+        return Verdict.PASS
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "verdict": self.verdict.value,
+            "exit_code": self.exit_code,
+            "total": self.total,
+            "passed": self.passed,
+            "failed": self.failed,
+            "errors": self.errors,
+            "skipped": self.skipped,
+            "duration": round(self.duration, 3),
+            "timestamp": self.timestamp,
+            "category": self.category,
+            "coverage_percent": self.coverage_percent,
+        }
 
 
 class BaseAdapter(ABC):

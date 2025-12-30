@@ -1,6 +1,6 @@
 """Test framework adapters for systemeval."""
 
-from .base import BaseAdapter, TestFailure, TestItem, TestResult
+from .base import BaseAdapter, TestFailure, TestItem, TestResult, Verdict
 from .registry import get_adapter, is_registered, list_adapters, register_adapter
 
 __all__ = [
@@ -9,6 +9,7 @@ __all__ = [
     "TestItem",
     "TestResult",
     "TestFailure",
+    "Verdict",
     # Registry functions
     "register_adapter",
     "get_adapter",

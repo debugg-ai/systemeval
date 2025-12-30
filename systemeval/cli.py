@@ -18,7 +18,7 @@ console = Console()
 
 
 @click.group()
-@click.version_option(version="0.1.1")
+@click.version_option(version="0.1.2")
 def main() -> None:
     """SystemEval - Unified test runner CLI."""
     pass
@@ -111,20 +111,13 @@ def test(
             verbose=verbose,
         )
 
+        # Set category on results for output
+        results.category = category or "default"
+
         # Output results
         if json_output:
             import json
-            output = {
-                "total": results.total,
-                "passed": results.passed,
-                "failed": results.failed,
-                "errors": results.errors,
-                "skipped": results.skipped,
-                "duration": results.duration,
-                "coverage_percent": results.coverage_percent,
-                "exit_code": results.exit_code,
-            }
-            console.print(json.dumps(output, indent=2))
+            console.print(json.dumps(results.to_dict(), indent=2))
         else:
             _display_results(results)
 
@@ -373,11 +366,23 @@ def _create_default_config(project_type: str) -> dict:
 
 def _display_results(results: TestResult) -> None:
     """Display test results in a formatted table."""
+    from systemeval.adapters import Verdict
+
     # Summary table
     table = Table(title="Test Results Summary")
     table.add_column("Metric", style="cyan")
     table.add_column("Value", style="white")
 
+    # Verdict first - most important
+    verdict = results.verdict
+    if verdict == Verdict.PASS:
+        table.add_row("Verdict", "[green bold]PASS[/green bold]")
+    elif verdict == Verdict.FAIL:
+        table.add_row("Verdict", "[red bold]FAIL[/red bold]")
+    else:
+        table.add_row("Verdict", "[yellow bold]ERROR[/yellow bold]")
+
+    table.add_row("Category", results.category or "default")
     table.add_row("Total", str(results.total))
     table.add_row("Passed", f"[green]{results.passed}[/green]")
     table.add_row("Failed", f"[red]{results.failed}[/red]" if results.failed > 0 else "0")
@@ -391,15 +396,17 @@ def _display_results(results: TestResult) -> None:
         coverage_color = "green" if results.coverage_percent >= 80 else "yellow"
         table.add_row("Coverage", f"[{coverage_color}]{results.coverage_percent:.1f}%[/{coverage_color}]")
 
+    table.add_row("Exit Code", str(results.exit_code))
+
     console.print(table)
 
-    # Overall result
-    if results.exit_code > 1:
-        console.print(f"\n[red bold]EXECUTION ERROR[/red bold]")
-    elif results.failed > 0 or results.errors > 0:
-        console.print(f"\n[red bold]FAILED[/red bold]")
+    # Overall result banner
+    if verdict == Verdict.ERROR:
+        console.print(f"\n[yellow bold]======== ERROR ========[/yellow bold]")
+    elif verdict == Verdict.FAIL:
+        console.print(f"\n[red bold]======== FAILED ========[/red bold]")
     else:
-        console.print(f"\n[green bold]PASSED[/green bold]")
+        console.print(f"\n[green bold]======== PASSED ========[/green bold]")
 
 
 if __name__ == '__main__':
