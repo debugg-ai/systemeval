@@ -54,6 +54,7 @@ systemeval = "systemeval.cli:main"
 Homepage = "https://github.com/debugg-ai/systemeval"
 Documentation = "https://github.com/debugg-ai/systemeval#readme"
 Repository = "https://github.com/debugg-ai/systemeval"
+Issues = "https://github.com/debugg-ai/systemeval/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
