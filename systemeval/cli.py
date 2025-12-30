@@ -18,7 +18,7 @@ console = Console()
 
 
 @click.group()
-@click.version_option(version="0.1.2")
+@click.version_option(version="0.1.3")
 def main() -> None:
     """SystemEval - Unified test runner CLI."""
     pass
@@ -33,6 +33,7 @@ def main() -> None:
 @click.option('--failfast', '-x', is_flag=True, help='Stop on first failure')
 @click.option('--verbose', '-v', is_flag=True, help='Verbose output')
 @click.option('--json', 'json_output', is_flag=True, help='Output results as JSON')
+@click.option('--template', '-t', help='Output template (summary, markdown, ci, github, junit, slack, table)')
 @click.option('--docker', is_flag=True, help='Force Docker environment')
 @click.option('--no-docker', is_flag=True, help='Force local environment')
 @click.option('--config', type=click.Path(exists=True), help='Path to config file')
@@ -45,6 +46,7 @@ def test(
     failfast: bool,
     verbose: bool,
     json_output: bool,
+    template: Optional[str],
     docker: bool,
     no_docker: bool,
     config: Optional[str],
@@ -118,6 +120,10 @@ def test(
         if json_output:
             import json
             console.print(json.dumps(results.to_dict(), indent=2))
+        elif template:
+            from systemeval.templates import render_results
+            output = render_results(results, template_name=template)
+            console.print(output)
         else:
             _display_results(results)
 
@@ -277,6 +283,25 @@ def list_adapters_cmd() -> None:
         table.add_row(name, f"[green]Available[/green] - {description}")
 
     console.print(table)
+
+
+@list.command('templates')
+def list_templates_cmd() -> None:
+    """List available output templates."""
+    from systemeval.templates import TemplateRenderer
+
+    renderer = TemplateRenderer()
+    templates = renderer.list_templates()
+
+    table = Table(title="Available Output Templates")
+    table.add_column("Template", style="cyan")
+    table.add_column("Description", style="white")
+
+    for name, description in sorted(templates.items()):
+        table.add_row(name, description)
+
+    console.print(table)
+    console.print("\n[dim]Usage: systemeval test --template <name>[/dim]")
 
 
 def _detect_project_type() -> Optional[str]:
