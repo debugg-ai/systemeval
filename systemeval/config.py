@@ -1,0 +1,137 @@
+"""
+Configuration loading and validation for systemeval.
+"""
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import yaml
+from pydantic import BaseModel, Field, field_validator
+
+
+class TestCategory(BaseModel):
+    """Test category configuration."""
+    description: Optional[str] = None
+    markers: List[str] = Field(default_factory=list)
+    test_match: List[str] = Field(default_factory=list)
+    paths: List[str] = Field(default_factory=list)
+    requires: List[str] = Field(default_factory=list)
+
+
+class PytestConfig(BaseModel):
+    """Pytest adapter specific configuration."""
+    config_file: Optional[str] = None
+    base_path: str = "."
+    default_category: str = "unit"
+
+
+class SystemEvalConfig(BaseModel):
+    """Main configuration model."""
+    adapter: str = Field(..., description="Test adapter to use (pytest, jest, etc.)")
+    project_root: Path = Field(default=Path("."), description="Project root directory")
+    test_directory: Path = Field(default=Path("tests"), description="Test directory path")
+    categories: Dict[str, TestCategory] = Field(default_factory=dict)
+    adapter_config: Dict[str, Any] = Field(default_factory=dict, description="Adapter-specific config")
+    pytest_config: Optional[PytestConfig] = None
+    project_name: Optional[str] = None
+
+    @field_validator("adapter")
+    @classmethod
+    def validate_adapter(cls, v: str) -> str:
+        """Validate adapter name."""
+        from systemeval.adapters import list_adapters
+
+        allowed_adapters = list_adapters()
+        if allowed_adapters and v not in allowed_adapters:
+            raise ValueError(f"Adapter '{v}' not registered. Available: {allowed_adapters}")
+        return v
+
+    @field_validator("project_root", "test_directory", mode="before")
+    @classmethod
+    def validate_paths(cls, v: Any) -> Path:
+        """Ensure paths are Path objects."""
+        return Path(v) if not isinstance(v, Path) else v
+
+
+def find_config_file(start_path: Optional[Path] = None) -> Optional[Path]:
+    """
+    Find systemeval.yaml in current or parent directories.
+
+    Args:
+        start_path: Starting directory (defaults to current working directory)
+
+    Returns:
+        Path to config file, or None if not found
+    """
+    current = start_path or Path.cwd()
+
+    # Search up to 5 levels
+    for _ in range(5):
+        config_path = current / "systemeval.yaml"
+        if config_path.exists():
+            return config_path
+
+        # Move to parent
+        parent = current.parent
+        if parent == current:
+            # Reached filesystem root
+            break
+        current = parent
+
+    return None
+
+
+def load_config(config_path: Path) -> SystemEvalConfig:
+    """
+    Load and validate configuration from YAML file.
+
+    Args:
+        config_path: Path to systemeval.yaml
+
+    Returns:
+        Validated SystemEvalConfig instance
+
+    Raises:
+        FileNotFoundError: If config file doesn't exist
+        ValueError: If configuration is invalid
+    """
+    if not config_path.exists():
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+
+    with open(config_path, "r") as f:
+        raw_config = yaml.safe_load(f)
+
+    if not raw_config:
+        raise ValueError(f"Empty or invalid config file: {config_path}")
+
+    # Build normalized config from nested YAML structure
+    normalized: Dict[str, Any] = {
+        "adapter": raw_config.get("adapter", "pytest"),
+        "project_root": config_path.parent,  # Use config file's directory as project root
+    }
+
+    # Extract project info
+    if "project" in raw_config:
+        project = raw_config["project"]
+        if isinstance(project, dict):
+            normalized["project_name"] = project.get("name")
+
+    # Extract pytest-specific config
+    if "pytest" in raw_config:
+        pytest_conf = raw_config["pytest"]
+        if isinstance(pytest_conf, dict):
+            normalized["pytest_config"] = PytestConfig(**pytest_conf)
+            # Set test_directory from base_path
+            if "base_path" in pytest_conf:
+                normalized["test_directory"] = pytest_conf["base_path"]
+
+    # Convert nested dicts to TestCategory objects
+    if "categories" in raw_config:
+        categories = {}
+        for name, category_data in raw_config["categories"].items():
+            if isinstance(category_data, dict):
+                categories[name] = TestCategory(**category_data)
+            else:
+                categories[name] = TestCategory()
+        normalized["categories"] = categories
+
+    return SystemEvalConfig(**normalized)
