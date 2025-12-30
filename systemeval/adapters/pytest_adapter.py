@@ -134,7 +134,7 @@ class PytestAdapter(BaseAdapter):
         if manage_py.exists():
             # Try to find settings module
             for candidate in settings_candidates:
-                settings_path = Path(self.project_root) / candidate.replace(".", "/") + ".py"
+                settings_path = Path(self.project_root) / (candidate.replace(".", "/") + ".py")
                 if settings_path.exists():
                     if "DJANGO_SETTINGS_MODULE" not in os.environ:
                         os.environ["DJANGO_SETTINGS_MODULE"] = candidate
