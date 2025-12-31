@@ -1,41 +1,67 @@
 """
-Unified Test Result Framework
+DEPRECATED - DO NOT USE IN NEW CODE
 
-Core data structures for deterministic pass/fail evaluation.
-Framework-agnostic result types for test execution reporting.
+This module contains legacy result classes that are being phased out.
 
-CASCADE LOGIC:
+USE INSTEAD:
+- systemeval.core.evaluation.EvaluationResult (PRIMARY schema)
+- systemeval.core.evaluation.SessionResult
+- systemeval.core.evaluation.MetricResult
+
+DEPRECATION PLAN:
+- Phase 1: All internal code migrated to evaluation.py (DONE)
+- Phase 2: Add deprecation warnings (CURRENT)
+- Phase 3: Remove this file entirely (Future)
+
+The classes in this file (SequenceResult, SessionResult, MetricResult)
+have naming conflicts with the canonical classes in evaluation.py.
+
+If you're seeing this file in new code, you're using the wrong schema.
+See systemeval/core/__init__.py docstring for the correct flow.
+
+CASCADE LOGIC (for legacy reference):
 - ANY metric fails → session FAILS
 - ANY session fails → sequence FAILS
 - Exit code: 0 = PASS, 1 = FAIL (binary, no other codes)
 """
 
+import warnings
+
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
 from typing import Any, Dict, List, Optional
 
-
-class Verdict(Enum):
-    """Binary verdict - no middle ground."""
-
-    PASS = "PASS"
-    FAIL = "FAIL"
+# Import canonical Verdict from evaluation module
+from .evaluation import Verdict
 
 
 @dataclass
 class MetricResult:
-    """Result of evaluating a single metric."""
+    """
+    DEPRECATED: Use systemeval.core.evaluation.MetricResult instead.
+
+    Result of evaluating a single metric.
+    """
 
     name: str
     value: Any
     passed: bool
     failure_message: Optional[str] = None
 
+    def __post_init__(self):
+        warnings.warn(
+            "MetricResult from result.py is deprecated. "
+            "Use systemeval.core.evaluation.MetricResult instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+
 
 @dataclass
 class SessionResult:
     """
+    DEPRECATED: Use systemeval.core.evaluation.SessionResult instead.
+
     Result for a single test session (e.g., one test category, one project).
 
     CASCADE RULE: If ANY metric fails, the session FAILS.
@@ -47,6 +73,14 @@ class SessionResult:
     raw_data: Dict[str, Any] = field(default_factory=dict)  # For renderer access
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
+
+    def __post_init__(self):
+        warnings.warn(
+            "SessionResult from result.py is deprecated. "
+            "Use systemeval.core.evaluation.SessionResult instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
 
     @property
     def verdict(self) -> Verdict:
@@ -71,6 +105,8 @@ class SessionResult:
 @dataclass
 class SequenceResult:
     """
+    DEPRECATED: Use systemeval.core.evaluation.EvaluationResult instead.
+
     Result for an entire test sequence (multiple sessions).
 
     CASCADE RULE: If ANY session fails, the sequence FAILS.
@@ -81,6 +117,14 @@ class SequenceResult:
     sessions: List[SessionResult] = field(default_factory=list)
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
+
+    def __post_init__(self):
+        warnings.warn(
+            "SequenceResult from result.py is deprecated. "
+            "Use systemeval.core.evaluation.EvaluationResult instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
 
     @property
     def verdict(self) -> Verdict:

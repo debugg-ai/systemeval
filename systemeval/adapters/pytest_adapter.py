@@ -17,6 +17,7 @@ except ImportError:
     PYTEST_AVAILABLE = False
 
 from .base import BaseAdapter, TestFailure, TestItem, TestResult
+from systemeval.utils.django import detect_django_settings
 
 
 class PytestCollectPlugin:
@@ -122,23 +123,7 @@ class PytestAdapter(BaseAdapter):
 
     def _detect_django(self) -> None:
         """Detect if this is a Django project and set DJANGO_SETTINGS_MODULE."""
-        # Check for common Django indicators
-        manage_py = Path(self.project_root) / "manage.py"
-        settings_candidates = [
-            "config.settings.local",
-            "config.settings",
-            "settings.local",
-            "settings",
-        ]
-
-        if manage_py.exists():
-            # Try to find settings module
-            for candidate in settings_candidates:
-                settings_path = Path(self.project_root) / (candidate.replace(".", "/") + ".py")
-                if settings_path.exists():
-                    if "DJANGO_SETTINGS_MODULE" not in os.environ:
-                        os.environ["DJANGO_SETTINGS_MODULE"] = candidate
-                    break
+        detect_django_settings(self.project_root, require_manage_py=True)
 
     def validate_environment(self) -> bool:
         """Validate that pytest is properly configured.

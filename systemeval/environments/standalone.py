@@ -4,12 +4,15 @@ Standalone environment for simple process-based testing.
 Used for Next.js dev servers, direct pytest runs, etc.
 Supports flexible test execution including custom scripts.
 """
+import logging
 import re
 import shlex
 import subprocess
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
+
+logger = logging.getLogger(__name__)
 
 from systemeval.adapters import TestResult, Verdict
 from systemeval.environments.base import Environment, EnvironmentType, SetupResult
@@ -238,8 +241,9 @@ class StandaloneEnvironment(Environment):
                 except subprocess.TimeoutExpired:
                     self._process.kill()
                     self._process.wait()
-            except Exception:
-                pass
+            except OSError as e:
+                # Process already terminated or inaccessible
+                logger.debug(f"Process cleanup encountered OSError: {e}")
             finally:
                 self._process = None
 

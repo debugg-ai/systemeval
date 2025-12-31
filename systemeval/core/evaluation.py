@@ -56,6 +56,20 @@ class Verdict(str, Enum):
     ERROR = "ERROR"
 
 
+class Severity(str, Enum):
+    """
+    Severity level for metric failures.
+
+    Used to categorize the importance of a failed metric:
+    - ERROR: Critical failure that must be addressed
+    - WARNING: Non-critical issue that should be reviewed
+    - INFO: Informational metric, always passes
+    """
+    ERROR = "error"
+    WARNING = "warning"
+    INFO = "info"
+
+
 @dataclass
 class MetricResult:
     """
@@ -71,8 +85,25 @@ class MetricResult:
 
     # Enrichment
     message: Optional[str] = None  # Human-readable description
-    severity: str = "error"  # error, warning, info
+    severity: Union[str, Severity] = Severity.ERROR  # error, warning, info
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Validate severity field."""
+        # Convert string to Severity enum if needed
+        if isinstance(self.severity, str):
+            try:
+                self.severity = Severity(self.severity)
+            except ValueError:
+                valid_values = ", ".join([s.value for s in Severity])
+                raise ValueError(
+                    f"Invalid severity value '{self.severity}'. "
+                    f"Must be one of: {valid_values}"
+                )
+        elif not isinstance(self.severity, Severity):
+            raise TypeError(
+                f"severity must be a string or Severity enum, got {type(self.severity).__name__}"
+            )
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -81,7 +112,7 @@ class MetricResult:
             "expected": self.expected,
             "passed": self.passed,
             "message": self.message,
-            "severity": self.severity,
+            "severity": self.severity.value,
             "metadata": self.metadata,
         }
 
@@ -433,7 +464,8 @@ def create_evaluation(
             stderr=subprocess.DEVNULL
         ).decode().strip()
         env_context["git_commit"] = git_commit[:12]
-    except Exception:
+    except (subprocess.CalledProcessError, OSError, FileNotFoundError):
+        # Git not available or not a git repo - skip git context
         pass
 
     try:
@@ -442,7 +474,8 @@ def create_evaluation(
             stderr=subprocess.DEVNULL
         ).decode().strip()
         env_context["git_branch"] = git_branch
-    except Exception:
+    except (subprocess.CalledProcessError, OSError, FileNotFoundError):
+        # Git not available or not a git repo - skip git context
         pass
 
     # Host context
@@ -492,11 +525,20 @@ def metric(
     expected: Any,
     condition: bool,
     message: Optional[str] = None,
-    severity: str = "error",
+    severity: Union[str, Severity] = Severity.ERROR,
     **metadata: Any,
 ) -> MetricResult:
     """
     Factory function to create a MetricResult.
+
+    Args:
+        name: Metric identifier
+        value: Actual measured value
+        expected: Expected value or condition description
+        condition: Whether the metric passed its condition
+        message: Human-readable description (optional)
+        severity: Metric severity level (error, warning, info). Defaults to error.
+        **metadata: Additional metadata key-value pairs
 
     Usage:
         m = metric(
@@ -506,6 +548,18 @@ def metric(
             condition=build_status == "succeeded",
             message="Build completed successfully"
         )
+
+        # With severity enum
+        m = metric(
+            name="coverage",
+            value=85.5,
+            expected=">=80",
+            condition=True,
+            severity=Severity.INFO
+        )
+
+        # Severity is validated - this will raise ValueError:
+        # metric("test", 1, "1", True, severity="critical")
     """
     return MetricResult(
         name=name,

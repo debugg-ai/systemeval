@@ -238,44 +238,6 @@ class DockerComposeEnvironment(Environment):
 
         return cmd
 
-    def _parse_test_output(self, output: str, exit_code: int) -> TestResult:
-        """Parse test output to extract results."""
-        import re
-
-        # Try to parse pytest summary line
-        # Example: "5 passed, 2 failed, 1 error in 12.34s"
-        summary_pattern = r"(\d+) passed"
-        failed_pattern = r"(\d+) failed"
-        error_pattern = r"(\d+) error"
-        skipped_pattern = r"(\d+) skipped"
-        duration_pattern = r"in ([\d.]+)s"
-
-        passed = 0
-        failed = 0
-        errors = 0
-        skipped = 0
-        duration = self.timings.tests
-
-        if match := re.search(summary_pattern, output):
-            passed = int(match.group(1))
-        if match := re.search(failed_pattern, output):
-            failed = int(match.group(1))
-        if match := re.search(error_pattern, output):
-            errors = int(match.group(1))
-        if match := re.search(skipped_pattern, output):
-            skipped = int(match.group(1))
-        if match := re.search(duration_pattern, output):
-            duration = float(match.group(1))
-
-        return TestResult(
-            passed=passed,
-            failed=failed,
-            errors=errors,
-            skipped=skipped,
-            duration=duration,
-            exit_code=exit_code,
-        )
-
     def _cleanup(self) -> None:
         """Internal cleanup for signal handlers."""
         if self._is_up:

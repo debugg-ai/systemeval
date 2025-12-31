@@ -3,6 +3,7 @@ Docker Resource Manager for orchestrating Docker Compose environments.
 
 Provides build, up, down, exec, logs, and health check functionality.
 """
+import logging
 import os
 import signal
 import subprocess
@@ -12,6 +13,8 @@ from pathlib import Path
 from typing import Callable, List, Optional
 from urllib.error import URLError
 from urllib.request import urlopen
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -332,7 +335,8 @@ class DockerResourceManager:
                 cwd=self.project_dir,
             )
             return result.stdout.strip() == "healthy"
-        except Exception:
+        except (subprocess.SubprocessError, OSError, FileNotFoundError) as e:
+            logger.debug(f"Docker health check failed: {e}")
             return False
 
     def wait_healthy(

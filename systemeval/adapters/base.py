@@ -1,25 +1,42 @@
-"""Base adapter abstract class for test framework integration."""
+"""
+Base adapter abstract class for test framework integration.
+
+SCHEMA ARCHITECTURE:
+====================
+
+TestResult (this file):
+- INTERMEDIATE format returned by adapter.execute()
+- Simple data class with test counts (passed, failed, errors, skipped)
+- Has .to_evaluation() method for conversion to final schema
+- Think of it as: "raw test execution data"
+
+EvaluationResult (evaluation.py):
+- FINAL output schema with full metadata, sessions, verdicts
+- This is what gets serialized to JSON
+- Think of it as: "complete evaluation report with context"
+
+FLOW:
+1. Adapter discovers tests → List[TestItem]
+2. Adapter executes tests → TestResult (this class)
+3. TestResult.to_evaluation() → EvaluationResult (final output)
+4. EvaluationResult.to_json() → JSON output
+
+Never skip step 3. Always convert TestResult to EvaluationResult before output.
+"""
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
 # Import unified evaluation schema
 from systemeval.core.evaluation import (
     EvaluationResult,
+    Verdict,
     create_evaluation,
     create_session,
     metric,
 )
-
-
-class Verdict(str, Enum):
-    """Deterministic test verdict - no subjective interpretation."""
-    PASS = "PASS"
-    FAIL = "FAIL"
-    ERROR = "ERROR"
 
 
 @dataclass
@@ -55,15 +72,17 @@ class TestResult:
     skipped: int
     duration: float
     failures: List[TestFailure] = field(default_factory=list)
-    total: int = 0
+    total: Optional[int] = None
     exit_code: int = 0
     coverage_percent: Optional[float] = None
     category: Optional[str] = None
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
+    parsing_warning: Optional[str] = None  # Warning when output format is unrecognized
+    parsed_from: Optional[str] = None  # Source of parsed data: "pytest", "jest", "playwright", "json", "fallback"
 
     def __post_init__(self) -> None:
         """Calculate total if not provided."""
-        if self.total == 0:
+        if self.total is None:
             self.total = self.passed + self.failed + self.errors + self.skipped
 
     @property
@@ -73,6 +92,7 @@ class TestResult:
         Verdict Logic (cascade, non-negotiable):
         - exit_code == 2 → ERROR (collection/config error)
         - total == 0 → ERROR (no tests collected)
+        - parsed_from == "fallback" AND exit_code != 0 → ERROR (unrecognized output with failure)
         - failed > 0 or errors > 0 → FAIL
         - All tests pass → PASS
         """
@@ -80,13 +100,17 @@ class TestResult:
             return Verdict.ERROR
         if self.total == 0:
             return Verdict.ERROR
+        # When output format is unrecognized and command failed, report ERROR not FAIL
+        # This prevents false positives from guessed test counts
+        if self.parsed_from == "fallback" and self.exit_code != 0:
+            return Verdict.ERROR
         if self.failed > 0 or self.errors > 0:
             return Verdict.FAIL
         return Verdict.PASS
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
-        return {
+        result = {
             "verdict": self.verdict.value,
             "exit_code": self.exit_code,
             "total": self.total,
@@ -99,6 +123,11 @@ class TestResult:
             "category": self.category,
             "coverage_percent": self.coverage_percent,
         }
+        if self.parsing_warning:
+            result["parsing_warning"] = self.parsing_warning
+        if self.parsed_from:
+            result["parsed_from"] = self.parsed_from
+        return result
 
     def to_evaluation(
         self,

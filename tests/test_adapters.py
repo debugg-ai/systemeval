@@ -3,7 +3,7 @@
 import json
 import pytest
 from systemeval.adapters import TestResult, TestFailure, Verdict
-from systemeval.core.evaluation import Verdict as EvalVerdict, SCHEMA_VERSION
+from systemeval.core.evaluation import SCHEMA_VERSION
 
 
 class TestTestResultVerdict:
@@ -82,7 +82,7 @@ class TestTestResultToEvaluation:
 
         assert eval_result.metadata.adapter_type == "pytest"
         assert eval_result.metadata.project_name == "test-project"
-        assert eval_result.verdict == EvalVerdict.PASS
+        assert eval_result.verdict == Verdict.PASS
 
     def test_to_evaluation_failing_result(self, failing_test_result):
         """Test conversion of failing TestResult."""
@@ -91,7 +91,7 @@ class TestTestResultToEvaluation:
         )
         eval_result.finalize()
 
-        assert eval_result.verdict == EvalVerdict.FAIL
+        assert eval_result.verdict == Verdict.FAIL
         assert eval_result.exit_code == 1
 
     def test_to_evaluation_creates_session(self, passing_test_result):
@@ -242,3 +242,20 @@ class TestTestResultTotal:
             total=100,  # explicit override
         )
         assert result.total == 100
+
+    def test_total_zero_preserved_if_explicit(self):
+        """Test that total=0 is preserved when explicitly provided.
+
+        This is important for 'no tests collected' scenarios where
+        total=0 is a valid, meaningful value that should not be
+        overwritten by the sum of counts.
+        """
+        result = TestResult(
+            passed=0,
+            failed=0,
+            errors=0,
+            skipped=0,
+            duration=0.0,
+            total=0,  # explicit zero - should NOT be overwritten
+        )
+        assert result.total == 0

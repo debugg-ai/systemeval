@@ -3,6 +3,31 @@ Core modules for systemeval.
 
 Provides framework-agnostic test result structures, configuration loading,
 pass/fail criteria, and unified reporting.
+
+SCHEMA HIERARCHY (Read this first!):
+=====================================================================
+
+1. TestResult (adapters/base.py)
+   - Intermediate format returned by adapter.execute()
+   - Contains: passed, failed, errors, skipped, duration, exit_code
+   - Has .to_evaluation() method to convert to EvaluationResult
+
+2. EvaluationResult (core/evaluation.py)
+   - PRIMARY output schema for ALL evaluations
+   - This is the SINGULAR contract for output
+   - Contains: metadata, sessions, verdict, summary
+   - Methods: to_json(), to_dict()
+
+3. Legacy (DEPRECATED - DO NOT USE):
+   - SequenceResult, SessionResult from result.py
+   - Only kept for backward compatibility
+   - Will be removed in future versions
+
+CORRECT FLOW:
+Adapter.execute() → TestResult → .to_evaluation() → EvaluationResult → JSON
+
+Never use result.py classes in new code. Always use evaluation.py.
+=====================================================================
 """
 
 from .config import (
@@ -44,13 +69,12 @@ from .criteria import (
     pass_rate_minimum,
 )
 from .reporter import Reporter, create_reporter
-from .result import MetricResult, SequenceResult, SessionResult, Verdict
 from .evaluation import (
     EvaluationResult,
     EvaluationMetadata,
-    SessionResult as EvalSessionResult,
-    MetricResult as EvalMetricResult,
-    Verdict as EvalVerdict,
+    SessionResult,
+    MetricResult,
+    Verdict,
     create_evaluation,
     create_session,
     metric,
@@ -97,12 +121,10 @@ __all__ = [
     # Reporter
     "Reporter",
     "create_reporter",
-    # Result (legacy)
+    # Evaluation (PRIMARY schema - use this!)
     "Verdict",
     "MetricResult",
     "SessionResult",
-    "SequenceResult",
-    # Evaluation (unified schema)
     "EvaluationResult",
     "EvaluationMetadata",
     "create_evaluation",

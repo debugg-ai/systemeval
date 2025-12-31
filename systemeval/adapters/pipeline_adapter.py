@@ -1,10 +1,28 @@
 """Pipeline adapter implementation for Django pipeline evaluation.
 
 This adapter integrates DebuggAI's full pipeline testing (build → deploy → health → crawl → E2E)
-with the systemeval framework.
+with the systemeval framework using a repository abstraction layer.
+
+Architecture:
+    The adapter follows the Dependency Inversion Principle:
+    - Public interface depends on ProjectRepository protocol (abstraction)
+    - DjangoProjectRepository implements the protocol (concrete implementation)
+    - Repository can be injected for testing or alternative implementations
+
+    The abstraction is applied at the adapter's public interface level:
+    - __init__, discover(), execute() use the repository abstraction
+    - Private helper methods (_poll_for_completion, _collect_metrics) work with
+      Django instances for database operations, as they're internal implementation details
 
 Usage:
+    # Default: Automatically creates DjangoProjectRepository
     adapter = PipelineAdapter('/path/to/sentinal/backend')
+
+    # Explicit: Inject repository for testing
+    from systemeval.adapters.repositories import MockProjectRepository
+    repo = MockProjectRepository()
+    adapter = PipelineAdapter('/path', repository=repo)
+
     tests = adapter.discover(category='pipeline')
     result = adapter.execute(tests, timeout=600)
 """
@@ -12,20 +30,20 @@ Usage:
 import hashlib
 import json
 import logging
-import os
 import secrets
-import sys
 import time
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .base import BaseAdapter, TestFailure, TestItem, TestResult
+from .repositories import DjangoProjectRepository, ProjectRepository
 from systemeval.core.evaluation import (
     EvaluationResult,
     create_evaluation,
     create_session,
     metric,
 )
+from systemeval.utils.django import setup_django
+from systemeval.utils.retry import RetryConfig, retry_with_backoff
 
 logger = logging.getLogger(__name__)
 
@@ -51,95 +69,64 @@ class PipelineAdapter(BaseAdapter):
         "e2e_error_rate": lambda v: v == 0 or v == 0.0,
     }
 
-    def __init__(self, project_root: str) -> None:
+    def __init__(
+        self,
+        project_root: str,
+        repository: Optional[ProjectRepository] = None,
+        retry_config: Optional[RetryConfig] = None,
+    ) -> None:
         """Initialize pipeline adapter.
 
         Args:
             project_root: Absolute path to the Django backend directory
+            repository: Optional repository implementation. If not provided,
+                       will attempt to create DjangoProjectRepository.
+            retry_config: Optional retry configuration for transient failures.
+                         Defaults to 3 retries with 1s initial delay.
         """
         super().__init__(project_root)
-        self._setup_django()
+        self._repository = repository
+
+        # Setup retry configuration with sensible defaults
+        self._retry_config = retry_config or RetryConfig(
+            max_attempts=3,
+            initial_delay=1.0,
+            max_delay=30.0,
+            exponential_base=2.0,
+            exceptions=(Exception,),
+        )
+
+        # Only setup Django if no repository is provided (backward compatibility)
+        if self._repository is None:
+            self._setup_django()
+            try:
+                self._repository = DjangoProjectRepository()
+            except (ImportError, RuntimeError) as e:
+                logger.warning(
+                    f"Failed to create Django repository: {e}. "
+                    "Adapter will not be functional without a repository."
+                )
 
     def _setup_django(self) -> None:
         """Ensure Django is configured."""
-        # Add project root to Python path
-        if self.project_root not in sys.path:
-            sys.path.insert(0, self.project_root)
-
-        # Set Django settings module if not already set
-        if "DJANGO_SETTINGS_MODULE" not in os.environ:
-            # Try to detect settings module
-            settings_candidates = [
-                "config.settings.local",
-                "config.settings",
-                "backend.settings.local",
-                "backend.settings",
-                "settings.local",
-                "settings",
-            ]
-
-            for candidate in settings_candidates:
-                settings_path = Path(self.project_root) / (
-                    candidate.replace(".", "/") + ".py"
-                )
-                if settings_path.exists():
-                    os.environ["DJANGO_SETTINGS_MODULE"] = candidate
-                    break
-            else:
-                # Default fallback
-                os.environ["DJANGO_SETTINGS_MODULE"] = "config.settings.local"
-
-        # Initialize Django if not already done
-        try:
-            import django
-
-            # Check if Django apps registry is ready
-            try:
-                from django.apps import apps
-                if not apps.ready:
-                    django.setup()
-            except Exception:
-                # Apps not initialized yet, run setup
-                django.setup()
-        except Exception as e:
-            logger.warning(f"Django setup failed: {e}")
+        setup_django(self.project_root)
 
     def validate_environment(self) -> bool:
-        """Validate that Django is properly configured.
+        """Validate that the repository is available.
 
         Returns:
             True if environment is valid, False otherwise
         """
-        try:
-            import django
-            from django.conf import settings
-
-            # Check if Django is configured
-            if not settings.configured:
-                return False
-
-            # Check for required Django apps
-            required_apps = [
-                "backend.projects",
-                "backend.builds",
-                "backend.containers",
-                "backend.graphs",
-                "backend.e2es",
-            ]
-
-            installed_apps = settings.INSTALLED_APPS
-            for app in required_apps:
-                if app not in installed_apps:
-                    logger.warning(f"Required app not installed: {app}")
-                    return False
-
-            return True
-
-        except ImportError:
-            logger.error("Django is not installed")
+        if self._repository is None:
+            logger.error("No repository configured")
             return False
+
+        # Try a simple repository operation
+        try:
+            self._repository.get_all_projects()
+            return True
         except Exception as e:
-            logger.error(f"Environment validation failed: {e}")
+            logger.error(f"Repository validation failed: {e}")
             return False
 
     def discover(
@@ -158,24 +145,26 @@ class PipelineAdapter(BaseAdapter):
         Returns:
             List of test items (one per project)
         """
-        try:
-            from backend.projects.models import Project
+        if self._repository is None:
+            logger.error("No repository configured for discovery")
+            return []
 
-            # Get all projects (or filter based on configuration)
-            projects = Project.objects.all()
+        try:
+            # Get all projects from repository
+            projects = self._repository.get_all_projects()
 
             test_items = []
             for project in projects:
                 test_items.append(
                     TestItem(
-                        id=str(project.id),
-                        name=project.name,
-                        path=project.slug,
+                        id=project["id"],
+                        name=project["name"],
+                        path=project["slug"],
                         markers=["pipeline", "build", "health", "crawl", "e2e"],
                         metadata={
-                            "project_id": project.id,
-                            "project_slug": project.slug,
-                            "repo_url": project.repo.url if project.repo else None,
+                            "project_id": project["id"],
+                            "project_slug": project["slug"],
+                            "repo_url": project.get("repo_url"),
                         },
                     )
                 )
@@ -219,7 +208,22 @@ class PipelineAdapter(BaseAdapter):
         """
         import time
 
-        from backend.projects.models import Project
+        if self._repository is None:
+            return TestResult(
+                passed=0,
+                failed=0,
+                errors=1,
+                skipped=0,
+                duration=0.0,
+                failures=[
+                    TestFailure(
+                        test_id="config",
+                        test_name="config",
+                        message="No repository configured",
+                    )
+                ],
+                exit_code=2,
+            )
 
         # Configuration with defaults
         timeout = timeout or 600
@@ -268,8 +272,18 @@ class PipelineAdapter(BaseAdapter):
                 print(f"\n--- Evaluating: {test.name} ---")
 
             try:
-                # Find project
-                project = Project.objects.get(id=int(test.id))
+                # Get project data
+                project_data = self._repository.get_project_by_id(test.id)
+                if not project_data:
+                    raise ValueError(f"Project {test.id} not found")
+
+                # For Django repository, extract the instance
+                project = project_data.get("_instance")
+                if project is None:
+                    raise ValueError(
+                        "Mock repository does not support full pipeline execution. "
+                        "Use DjangoProjectRepository for actual pipeline tests."
+                    )
 
                 # Evaluate project through full pipeline
                 session_start = time.time()
@@ -363,32 +377,51 @@ class PipelineAdapter(BaseAdapter):
     # =========================================================================
 
     def _find_project(self, slug: str):
-        """Find a project by slug or name."""
-        from backend.projects.models import Project
+        """Find a project by slug or name.
 
-        project = Project.objects.filter(slug__icontains=slug).first()
-        if project:
-            return project
-        project = Project.objects.filter(name__icontains=slug).first()
-        return project
+        Args:
+            slug: Project slug or name to search for
+
+        Returns:
+            Project instance (Django model) if using DjangoProjectRepository, None otherwise
+        """
+        if self._repository is None:
+            return None
+
+        project_data = self._repository.find_project(slug)
+        if project_data:
+            # Return the Django instance if available
+            return project_data.get("_instance")
+        return None
 
     def _trigger_webhook(
         self, project, sync_mode: bool = False, verbose: bool = False
     ) -> bool:
         """Trigger GitHub push webhook for a project.
 
+        This method uses retry logic to handle transient failures in webhook triggering,
+        such as temporary network issues or service unavailability.
+
         Args:
-            project: Project instance
+            project: Project instance (Django model)
             sync_mode: Run synchronously (blocking) if True
             verbose: Print verbose output
 
         Returns:
             True if webhook was triggered successfully
         """
-        try:
-            from backend.repos.models import RepositoryInstallation
+        @retry_with_backoff(
+            max_attempts=self._retry_config.max_attempts,
+            initial_delay=self._retry_config.initial_delay,
+            max_delay=self._retry_config.max_delay,
+            exponential_base=self._retry_config.exponential_base,
+            exceptions=(ConnectionError, TimeoutError, OSError),
+            logger_instance=logger,
+        )
+        def _trigger_with_retry():
+            """Inner function that performs the webhook trigger with retry."""
+            # Import Django-specific modules only when needed
             from backend.repos.tasks import process_push_webhook
-            from backend.pipelines.models import PipelineExecution
 
             repo = project.repo
             if not repo:
@@ -396,25 +429,36 @@ class PipelineAdapter(BaseAdapter):
                     print("  No repository associated with project")
                 return False
 
-            repo_install = RepositoryInstallation.objects.filter(repo=repo).first()
-            if not repo_install:
+            # Use repository abstraction to get installation
+            if self._repository:
+                installation_data = self._repository.get_repository_installation(repo.id)
+            else:
+                installation_data = None
+
+            if not installation_data:
                 if verbose:
                     print("  No GitHub installation found")
                 return False
 
-            # Get latest commit SHA from existing execution
-            latest_exec = (
-                PipelineExecution.objects.filter(project=project)
-                .exclude(metadata={})
-                .order_by("-timestamp")
-                .first()
-            )
+            # Get installation instance for Django-specific operations
+            repo_install = installation_data.get("_instance")
+            if not repo_install:
+                if verbose:
+                    print("  Repository installation not available")
+                return False
 
-            commit_sha = (
-                latest_exec.metadata.get("commit_sha")
-                if latest_exec and latest_exec.metadata.get("commit_sha")
-                else secrets.token_hex(20)
-            )
+            # Get latest commit SHA from existing execution
+            if self._repository:
+                latest_exec_data = self._repository.get_latest_pipeline_execution(
+                    str(project.id)
+                )
+                commit_sha = (
+                    latest_exec_data.get("metadata", {}).get("commit_sha")
+                    if latest_exec_data
+                    else secrets.token_hex(20)
+                )
+            else:
+                commit_sha = secrets.token_hex(20)
 
             # Build webhook payload
             if "/" in repo.name:
@@ -460,10 +504,12 @@ class PipelineAdapter(BaseAdapter):
 
             return True
 
+        try:
+            return _trigger_with_retry()
         except Exception as e:
-            logger.exception(f"Failed to trigger webhook for {project.name}")
+            logger.exception(f"Failed to trigger webhook for {project.name} after retries")
             if verbose:
-                print(f"  Webhook trigger failed: {e}")
+                print(f"  Webhook trigger failed after retries: {e}")
             return False
 
     def _poll_for_completion(
@@ -477,8 +523,15 @@ class PipelineAdapter(BaseAdapter):
     ) -> Dict[str, Any]:
         """Poll for pipeline completion and collect metrics.
 
+        NOTE: This is a private helper that works with Django model instances directly.
+        The abstraction layer is at the public interface (discover/execute), not here.
+        This method performs complex database queries that are specific to Django ORM.
+
+        This method includes retry logic for database queries to handle transient
+        connection issues during polling.
+
         Args:
-            project: Project instance
+            project: Project instance (Django model)
             timeout: Max time to wait in seconds
             poll_interval: Seconds between status checks
             session_start: Start time of this session (Unix timestamp)
@@ -490,6 +543,7 @@ class PipelineAdapter(BaseAdapter):
         """
         from datetime import datetime, timezone as dt_timezone
         from django.db.models import Avg, Q
+        from django.db import OperationalError
         from django.utils import timezone
         from backend.builds.models import Build
         from backend.containers.models import Container
@@ -503,7 +557,19 @@ class PipelineAdapter(BaseAdapter):
             session_start, tz=dt_timezone.utc
         )
 
-        while time.time() - start_wait < timeout:
+        # Create a retry decorator for database operations
+        @retry_with_backoff(
+            max_attempts=self._retry_config.max_attempts,
+            initial_delay=self._retry_config.initial_delay,
+            max_delay=self._retry_config.max_delay,
+            exponential_base=self._retry_config.exponential_base,
+            exceptions=(OperationalError, ConnectionError, TimeoutError),
+            logger_instance=logger,
+        )
+        def _fetch_metrics_with_retry():
+            """Fetch metrics with retry on transient database failures."""
+            current_metrics = {}
+
             # Check pipeline execution
             pe = (
                 PipelineExecution.objects.filter(project=project)
@@ -512,14 +578,17 @@ class PipelineAdapter(BaseAdapter):
             )
 
             if pe:
-                metrics["pipeline_status"] = pe.status
+                current_metrics["pipeline_status"] = pe.status
+                current_metrics["_pe_obj"] = pe
+            else:
+                current_metrics["_pe_obj"] = None
 
             # Check build
             build = Build.objects.filter(project=project).order_by("-timestamp").first()
             if build:
-                metrics["build_status"] = build.status
+                current_metrics["build_status"] = build.status
                 if build.completed_at and build.timestamp:
-                    metrics["build_duration_seconds"] = (
+                    current_metrics["build_duration_seconds"] = (
                         build.completed_at - build.timestamp
                     ).total_seconds()
 
@@ -528,19 +597,20 @@ class PipelineAdapter(BaseAdapter):
                 Container.objects.filter(project=project).order_by("-timestamp").first()
             )
             if container:
-                metrics["container_healthy"] = container.is_healthy
-                metrics["health_checks_passed"] = container.health_checks_passed
+                current_metrics["container_healthy"] = container.is_healthy
+                current_metrics["health_checks_passed"] = container.health_checks_passed
 
             # Check knowledge graph
             kg = KnowledgeGraph.objects.filter(environment__project=project).first()
             if kg:
-                metrics["kg_exists"] = True
-                metrics["kg_pages"] = GraphPage.objects.filter(graph=kg).count()
+                current_metrics["kg_exists"] = True
+                current_metrics["kg_pages"] = GraphPage.objects.filter(graph=kg).count()
             else:
-                metrics["kg_exists"] = False
-                metrics["kg_pages"] = 0
+                current_metrics["kg_exists"] = False
+                current_metrics["kg_pages"] = 0
 
             # Check E2E metrics - ONLY count runs from this evaluation session
+            pe = current_metrics.get("_pe_obj")
             if pe:
                 # Include runs tied to this pipeline execution
                 session_runs = E2eRun.objects.filter(
@@ -552,59 +622,78 @@ class PipelineAdapter(BaseAdapter):
                     project=project, timestamp__gte=session_start_dt
                 )
 
-            metrics["e2e_runs"] = session_runs.count()
-            metrics["e2e_passed"] = session_runs.filter(outcome="pass").count()
-            metrics["e2e_failed"] = session_runs.filter(outcome="fail").count()
-            metrics["e2e_error"] = session_runs.filter(outcome="error").count()
+            current_metrics["e2e_runs"] = session_runs.count()
+            current_metrics["e2e_passed"] = session_runs.filter(outcome="pass").count()
+            current_metrics["e2e_failed"] = session_runs.filter(outcome="fail").count()
+            current_metrics["e2e_error"] = session_runs.filter(outcome="error").count()
 
-            if metrics["e2e_runs"] > 0:
-                metrics["e2e_error_rate"] = (
-                    metrics["e2e_error"] / metrics["e2e_runs"]
+            if current_metrics["e2e_runs"] > 0:
+                current_metrics["e2e_error_rate"] = (
+                    current_metrics["e2e_error"] / current_metrics["e2e_runs"]
                 ) * 100
             else:
-                metrics["e2e_error_rate"] = 0.0
+                current_metrics["e2e_error_rate"] = 0.0
 
             # Get average actions from E2eRunMetrics
             session_run_ids = list(session_runs.values_list("id", flat=True))
             avg_result = E2eRunMetrics.objects.filter(
                 run_id__in=session_run_ids
             ).aggregate(avg_steps=Avg("num_steps"))
-            metrics["e2e_avg_actions"] = avg_result["avg_steps"] or 0.0
+            current_metrics["e2e_avg_actions"] = avg_result["avg_steps"] or 0.0
 
             # Count completed E2E runs
-            completed_runs = session_runs.filter(
+            current_metrics["_completed_runs"] = session_runs.filter(
                 status__in=["completed", "error"]
             ).count()
-            pending_runs = session_runs.filter(status__in=["pending", "running"]).count()
+            current_metrics["_pending_runs"] = session_runs.filter(
+                status__in=["pending", "running"]
+            ).count()
 
-            # Print progress
-            if verbose:
-                elapsed = int(time.time() - start_wait)
-                build_status = metrics.get("build_status", "none")
-                container_status = (
-                    "healthy" if metrics.get("container_healthy") else "pending"
-                )
-                print(
-                    f"  [+{elapsed}s] "
-                    f"build={build_status} "
-                    f"container={container_status} "
-                    f"e2e={completed_runs}/{metrics['e2e_runs']} (pending={pending_runs})"
-                )
+            return current_metrics
 
-            # Check if we have enough to call it done
-            if metrics.get("build_status") == "succeeded" and metrics.get(
-                "container_healthy"
-            ):
-                if skip_build:
-                    # In skip_build mode, just check container health
-                    break
-                elif metrics.get("pipeline_status") in ["completed", "failed"]:
-                    # Pipeline done - wait a bit for any in-flight E2E runs
-                    if pending_runs == 0 or metrics["e2e_runs"] == 0:
+        while time.time() - start_wait < timeout:
+            try:
+                # Fetch metrics with retry logic
+                current_metrics = _fetch_metrics_with_retry()
+                metrics.update(current_metrics)
+
+                # Extract temporary values
+                completed_runs = metrics.pop("_completed_runs", 0)
+                pending_runs = metrics.pop("_pending_runs", 0)
+                metrics.pop("_pe_obj", None)
+
+                # Print progress
+                if verbose:
+                    elapsed = int(time.time() - start_wait)
+                    build_status = metrics.get("build_status", "none")
+                    container_status = (
+                        "healthy" if metrics.get("container_healthy") else "pending"
+                    )
+                    print(
+                        f"  [+{elapsed}s] "
+                        f"build={build_status} "
+                        f"container={container_status} "
+                        f"e2e={completed_runs}/{metrics['e2e_runs']} (pending={pending_runs})"
+                    )
+
+                # Check if we have enough to call it done
+                if metrics.get("build_status") == "succeeded" and metrics.get(
+                    "container_healthy"
+                ):
+                    if skip_build:
+                        # In skip_build mode, just check container health
                         break
-                elif metrics["e2e_runs"] > 0 and pending_runs == 0:
-                    # All E2E runs completed
-                    break
+                    elif metrics.get("pipeline_status") in ["completed", "failed"]:
+                        # Pipeline done - wait a bit for any in-flight E2E runs
+                        if pending_runs == 0 or metrics["e2e_runs"] == 0:
+                            break
+                    elif metrics["e2e_runs"] > 0 and pending_runs == 0:
+                        # All E2E runs completed
+                        break
+
+            except Exception as e:
+                # If retry logic failed completely, log and continue polling
+                logger.warning(f"Failed to fetch metrics during polling (will retry): {e}")
 
             time.sleep(poll_interval)
 
@@ -615,8 +704,15 @@ class PipelineAdapter(BaseAdapter):
     ) -> Dict[str, Any]:
         """Collect comprehensive metrics for a project.
 
+        NOTE: This is a private helper that works with Django model instances directly.
+        The abstraction layer is at the public interface (discover/execute), not here.
+        This method performs complex database queries that are specific to Django ORM.
+
+        This method includes retry logic for database queries to handle transient
+        connection issues.
+
         Args:
-            project: Project instance
+            project: Project instance (Django model)
             session_start: Start time of this session (Unix timestamp)
             verbose: Print verbose output
 
@@ -625,6 +721,7 @@ class PipelineAdapter(BaseAdapter):
         """
         from datetime import datetime, timezone as dt_timezone
         from django.db.models import Avg, Q
+        from django.db import OperationalError
         from django.utils import timezone
         from backend.builds.models import Build
         from backend.containers.models import Container
@@ -633,17 +730,27 @@ class PipelineAdapter(BaseAdapter):
         from backend.pipelines.models import PipelineExecution, StageExecution
         from backend.surfers.models import Surfer
 
-        session_start_dt = datetime.fromtimestamp(
-            session_start, tz=dt_timezone.utc
+        @retry_with_backoff(
+            max_attempts=self._retry_config.max_attempts,
+            initial_delay=self._retry_config.initial_delay,
+            max_delay=self._retry_config.max_delay,
+            exponential_base=self._retry_config.exponential_base,
+            exceptions=(OperationalError, ConnectionError, TimeoutError),
+            logger_instance=logger,
         )
+        def _collect_with_retry():
+            """Collect all metrics with retry on transient database failures."""
+            session_start_dt = datetime.fromtimestamp(
+                session_start, tz=dt_timezone.utc
+            )
 
-        metrics = {}
-        diagnostics = []
+            metrics = {}
+            diagnostics = []
 
-        # =====================================================================
-        # BUILD METRICS
-        # =====================================================================
-        build = Build.objects.filter(project=project).order_by("-timestamp").first()
+            # =====================================================================
+            # BUILD METRICS
+            # =====================================================================
+            build = Build.objects.filter(project=project).order_by("-timestamp").first()
         if build:
             metrics["build_status"] = build.status
             metrics["build_id"] = str(build.id)
@@ -835,13 +942,15 @@ class PipelineAdapter(BaseAdapter):
                 f"{metrics['e2e_error']} E2E runs errored - this is a system bug!"
             )
 
-        # =====================================================================
-        # DIAGNOSTICS SUMMARY
-        # =====================================================================
-        metrics["diagnostics"] = diagnostics
-        metrics["diagnostic_count"] = len(diagnostics)
+            # =====================================================================
+            # DIAGNOSTICS SUMMARY
+            # =====================================================================
+            metrics["diagnostics"] = diagnostics
+            metrics["diagnostic_count"] = len(diagnostics)
 
-        return metrics
+            return metrics
+
+        return _collect_with_retry()
 
     def _metrics_pass(self, metrics: Dict[str, Any]) -> bool:
         """Check if metrics pass all criteria.

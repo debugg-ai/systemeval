@@ -555,7 +555,8 @@ def _detect_project_type() -> Optional[str]:
                     return "nextjs"
                 if "jest" in deps:
                     return "jest"
-        except:
+        except (OSError, json.JSONDecodeError, KeyError, TypeError):
+            # Failed to read or parse package.json - fall through to nodejs
             pass
         return "nodejs"
 

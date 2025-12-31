@@ -2,6 +2,11 @@
 
 from .base import BaseAdapter, TestFailure, TestItem, TestResult, Verdict
 from .registry import get_adapter, is_registered, list_adapters, register_adapter
+from .repositories import (
+    DjangoProjectRepository,
+    MockProjectRepository,
+    ProjectRepository,
+)
 
 __all__ = [
     # Base classes and data structures
@@ -15,4 +20,8 @@ __all__ = [
     "get_adapter",
     "list_adapters",
     "is_registered",
+    # Repository abstractions
+    "ProjectRepository",
+    "DjangoProjectRepository",
+    "MockProjectRepository",
 ]

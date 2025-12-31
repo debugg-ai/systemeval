@@ -1,0 +1,228 @@
+SystemEval Schema Flow - Quick Reference
+==========================================
+
+┌────────────────────────────────────────────────────────────────────────────┐
+│                         SCHEMA HIERARCHY                                   │
+└────────────────────────────────────────────────────────────────────────────┘
+
+1. ADAPTER EXECUTION
+   ┌─────────────────────────────────────┐
+   │  Adapter.execute(tests)             │
+   │                                     │
+   │  Returns: TestResult                │
+   │  ├─ passed: int                     │
+   │  ├─ failed: int                     │
+   │  ├─ errors: int                     │
+   │  ├─ skipped: int                    │
+   │  ├─ duration: float                 │
+   │  └─ exit_code: int                  │
+   └─────────────────────────────────────┘
+                │
+                │ .to_evaluation()
+                │
+                ▼
+2. SCHEMA CONVERSION
+   ┌─────────────────────────────────────┐
+   │  TestResult.to_evaluation(          │
+   │      adapter_type="pytest",         │
+   │      project_name="my-project"      │
+   │  )                                  │
+   └─────────────────────────────────────┘
+                │
+                ▼
+3. EVALUATION RESULT (PRIMARY OUTPUT)
+   ┌─────────────────────────────────────┐
+   │  EvaluationResult                   │
+   │  ├─ metadata                        │
+   │  │  ├─ evaluation_id (UUID)         │
+   │  │  ├─ run_hash (SHA256)            │
+   │  │  ├─ timestamp_utc                │
+   │  │  ├─ duration_seconds             │
+   │  │  ├─ environment (git, host, etc) │
+   │  │  ├─ adapter_type                 │
+   │  │  ├─ category                     │
+   │  │  └─ project_name                 │
+   │  │                                  │
+   │  ├─ sessions: List[SessionResult]   │
+   │  │  ├─ session_id                   │
+   │  │  ├─ session_name                 │
+   │  │  ├─ metrics: List[MetricResult]  │
+   │  │  ├─ verdict (PASS/FAIL/ERROR)    │
+   │  │  └─ duration_seconds             │
+   │  │                                  │
+   │  ├─ verdict (overall PASS/FAIL)     │
+   │  ├─ exit_code (0/1/2)               │
+   │  ├─ summary (statistics)            │
+   │  ├─ diagnostics                     │
+   │  └─ warnings                        │
+   └─────────────────────────────────────┘
+                │
+                │ .finalize()
+                │
+                ▼
+4. FINALIZATION
+   ┌─────────────────────────────────────┐
+   │  evaluation.finalize()              │
+   │  ├─ Compute overall verdict         │
+   │  ├─ Compute run_hash                │
+   │  ├─ Compute duration                │
+   │  └─ Lock result (no more changes)   │
+   └─────────────────────────────────────┘
+                │
+                │ .to_json()
+                │
+                ▼
+5. JSON OUTPUT
+   ┌─────────────────────────────────────┐
+   │  {                                  │
+   │    "metadata": { ... },             │
+   │    "verdict": "PASS",               │
+   │    "exit_code": 0,                  │
+   │    "summary": { ... },              │
+   │    "sessions": [ ... ],             │
+   │    "diagnostics": [],               │
+   │    "warnings": []                   │
+   │  }                                  │
+   └─────────────────────────────────────┘
+
+
+┌────────────────────────────────────────────────────────────────────────────┐
+│                         VERDICT CASCADE                                    │
+└────────────────────────────────────────────────────────────────────────────┘
+
+MetricResult.passed = False
+         │
+         ▼
+SessionResult.verdict = FAIL    ◄─── ANY metric fails → session FAILS
+         │
+         ▼
+EvaluationResult.verdict = FAIL ◄─── ANY session fails → evaluation FAILS
+         │
+         ▼
+exit_code = 1
+
+
+┌────────────────────────────────────────────────────────────────────────────┐
+│                         CODE EXAMPLES                                      │
+└────────────────────────────────────────────────────────────────────────────┘
+
+✓ CORRECT FLOW
+───────────────
+from systemeval.adapters import get_adapter
+from systemeval.core import create_evaluation
+
+# 1. Execute tests
+adapter = get_adapter("pytest", project_root="/path/to/project")
+result = adapter.execute()  # Returns TestResult
+
+# 2. Convert to EvaluationResult
+evaluation = result.to_evaluation(
+    adapter_type="pytest",
+    project_name="my-project"
+)
+
+# 3. Finalize
+evaluation.finalize()
+
+# 4. Output JSON
+print(evaluation.to_json())
+
+
+✗ WRONG - Skipping conversion
+──────────────────────────────
+result = adapter.execute()
+print(result.to_json())  # ERROR! TestResult has no .to_json()
+
+
+✗ WRONG - Using deprecated schema
+──────────────────────────────────
+from systemeval.core.result import SequenceResult
+seq = SequenceResult(...)  # DeprecationWarning!
+
+
+✓ CORRECT - Manual construction
+────────────────────────────────
+from systemeval.core import create_evaluation, create_session, metric
+
+# Create evaluation
+evaluation = create_evaluation(
+    adapter_type="pytest",
+    category="unit",
+    project_name="my-project"
+)
+
+# Create session
+session = create_session("unit-tests")
+
+# Add metrics
+session.metrics.append(metric(
+    name="tests_passed",
+    value=150,
+    expected=">0",
+    condition=True,
+    message="150 tests passed"
+))
+
+session.metrics.append(metric(
+    name="coverage_percent",
+    value=85.5,
+    expected=">=80",
+    condition=True,
+    message="85.5% coverage"
+))
+
+# Add session to evaluation
+evaluation.add_session(session)
+
+# Finalize and output
+evaluation.finalize()
+print(evaluation.to_json())
+
+
+┌────────────────────────────────────────────────────────────────────────────┐
+│                         IMPORT GUIDE                                       │
+└────────────────────────────────────────────────────────────────────────────┘
+
+✓ Correct imports:
+    from systemeval.adapters.base import TestResult      # Intermediate
+    from systemeval.core import EvaluationResult         # Final output
+    from systemeval.core import create_evaluation        # Factory
+    from systemeval.core import create_session           # Factory
+    from systemeval.core import metric                   # Factory
+    from systemeval.core import Verdict                  # Enum
+
+✗ Wrong imports:
+    from systemeval.core.result import SequenceResult    # DEPRECATED!
+    from systemeval.core.result import SessionResult     # DEPRECATED!
+    from systemeval.core.result import MetricResult      # DEPRECATED!
+
+
+┌────────────────────────────────────────────────────────────────────────────┐
+│                         FILES                                              │
+└────────────────────────────────────────────────────────────────────────────┘
+
+systemeval/
+├── adapters/
+│   └── base.py ..................... TestResult (intermediate format)
+│
+├── core/
+│   ├── evaluation.py ............... EvaluationResult (PRIMARY schema) ✓
+│   ├── result.py ................... SequenceResult (DEPRECATED) ✗
+│   ├── reporter.py ................. Uses EvaluationResult
+│   └── __init__.py ................. Exports evaluation.py classes
+│
+├── SCHEMA_HIERARCHY.md ............. Full documentation
+└── SCHEMA_FLOW.txt ................. This file
+
+
+┌────────────────────────────────────────────────────────────────────────────┐
+│                         QUICK RULES                                        │
+└────────────────────────────────────────────────────────────────────────────┘
+
+1. Adapters ALWAYS return TestResult
+2. ALWAYS call .to_evaluation() before JSON output
+3. ALWAYS call .finalize() before outputting
+4. NEVER use result.py classes (they're deprecated)
+5. EvaluationResult is the SINGULAR output contract
+
+Questions? Read SCHEMA_HIERARCHY.md for full details.

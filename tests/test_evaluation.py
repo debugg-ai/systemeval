@@ -8,6 +8,7 @@ from systemeval.core.evaluation import (
     SessionResult,
     MetricResult,
     Verdict,
+    Severity,
     create_evaluation,
     create_session,
     metric,
@@ -33,7 +34,7 @@ class TestMetricResult:
         assert m.expected == ">0"
         assert m.passed is True
         assert m.message == "10 tests executed"
-        assert m.severity == "error"  # default
+        assert m.severity == Severity.ERROR  # default
 
     def test_create_failing_metric(self):
         """Test creating a failing metric."""
@@ -47,7 +48,7 @@ class TestMetricResult:
         )
 
         assert m.passed is False
-        assert m.severity == "error"
+        assert m.severity == Severity.ERROR
 
     def test_metric_to_dict(self):
         """Test metric serialization."""
@@ -62,6 +63,119 @@ class TestMetricResult:
         assert d["name"] == "coverage"
         assert d["value"] == 85.5
         assert d["passed"] is True
+
+    def test_severity_valid_string_values(self):
+        """Test that valid severity string values are accepted."""
+        for severity_value in ["error", "warning", "info"]:
+            m = metric(
+                name="test",
+                value=1,
+                expected="1",
+                condition=True,
+                severity=severity_value,
+            )
+            assert m.severity == Severity(severity_value)
+            assert m.severity.value == severity_value
+
+    def test_severity_enum_values(self):
+        """Test that Severity enum values are accepted."""
+        m_error = metric(
+            name="test",
+            value=1,
+            expected="1",
+            condition=True,
+            severity=Severity.ERROR,
+        )
+        assert m_error.severity == Severity.ERROR
+        assert m_error.severity.value == "error"
+
+        m_warning = metric(
+            name="test",
+            value=1,
+            expected="1",
+            condition=True,
+            severity=Severity.WARNING,
+        )
+        assert m_warning.severity == Severity.WARNING
+        assert m_warning.severity.value == "warning"
+
+        m_info = metric(
+            name="test",
+            value=1,
+            expected="1",
+            condition=True,
+            severity=Severity.INFO,
+        )
+        assert m_info.severity == Severity.INFO
+        assert m_info.severity.value == "info"
+
+    def test_severity_default_value(self):
+        """Test that default severity is ERROR."""
+        m = metric(
+            name="test",
+            value=1,
+            expected="1",
+            condition=True,
+        )
+        assert m.severity == Severity.ERROR
+        assert m.severity.value == "error"
+
+    def test_severity_invalid_string_raises_error(self):
+        """Test that invalid severity string raises ValueError."""
+        with pytest.raises(ValueError) as exc_info:
+            metric(
+                name="test",
+                value=1,
+                expected="1",
+                condition=True,
+                severity="critical",  # Invalid
+            )
+        assert "Invalid severity value" in str(exc_info.value)
+        assert "critical" in str(exc_info.value)
+        assert "error, warning, info" in str(exc_info.value)
+
+    def test_severity_invalid_type_raises_error(self):
+        """Test that invalid severity type raises TypeError."""
+        with pytest.raises(TypeError) as exc_info:
+            MetricResult(
+                name="test",
+                value=1,
+                expected="1",
+                passed=True,
+                severity=123,  # Invalid type
+            )
+        assert "severity must be a string or Severity enum" in str(exc_info.value)
+
+    def test_severity_serialization_to_dict(self):
+        """Test that severity is serialized correctly in to_dict()."""
+        m = metric(
+            name="test",
+            value=1,
+            expected="1",
+            condition=True,
+            severity=Severity.WARNING,
+        )
+        d = m.to_dict()
+        assert d["severity"] == "warning"  # Should be string value, not enum
+
+    def test_severity_in_json_serialization(self):
+        """Test that severity is serialized correctly to JSON."""
+        result = create_evaluation("test")
+        session = create_session("s1")
+        session.metrics.append(metric(
+            name="test_metric",
+            value=1,
+            expected="1",
+            condition=True,
+            severity=Severity.INFO,
+        ))
+        result.add_session(session)
+        result.finalize()
+
+        json_str = result.to_json()
+        data = json.loads(json_str)
+        metric_data = data["sessions"][0]["metrics"][0]
+        assert metric_data["severity"] == "info"
 
 
 class TestSessionResult:

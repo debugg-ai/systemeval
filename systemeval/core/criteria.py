@@ -6,9 +6,11 @@ These are NOT configurable - they define what "passing" means.
 
 Framework-agnostic criteria that can be reused across pytest, jest, etc.
 """
-
+import logging
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -33,7 +35,9 @@ class MetricCriterion:
         """
         try:
             passed = self.evaluator(value)
-        except Exception:
+        except (TypeError, ValueError, AttributeError) as e:
+            # Evaluator failed due to incompatible value type
+            logger.debug(f"Criterion '{self.name}' evaluation failed: {e}")
             passed = False
         return (passed, None if passed else self.failure_message.format(value=value))
 
