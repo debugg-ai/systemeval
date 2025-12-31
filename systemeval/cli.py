@@ -16,9 +16,6 @@ from systemeval.plugins.docker import get_environment_type, is_docker_environmen
 
 console = Console()
 
-# Store builtin list before it gets shadowed by the @main.group() named 'list'
-_builtin_list = list
-
 
 def _run_with_environment(
     test_config: "SystemEvalConfig",
@@ -258,7 +255,7 @@ def test(
             # Add pipeline-specific options if using pipeline adapter
             if test_config.adapter == "pipeline":
                 if projects:
-                    exec_kwargs["projects"] = _builtin_list(projects)
+                    exec_kwargs["projects"] = list(projects)
                 if timeout:
                     exec_kwargs["timeout"] = timeout
                 if poll_interval:
@@ -390,12 +387,12 @@ def validate(config: Optional[str]) -> None:
 
 
 @main.group()
-def list() -> None:
+def list_cmd() -> None:
     """List available items."""
     pass
 
 
-@list.command('categories')
+@list_cmd.command('categories')
 @click.option('--config', type=click.Path(exists=True), help='Path to config file')
 def list_categories(config: Optional[str]) -> None:
     """List available test categories."""
@@ -428,7 +425,7 @@ def list_categories(config: Optional[str]) -> None:
         sys.exit(2)
 
 
-@list.command('environments')
+@list_cmd.command('environments')
 @click.option('--config', type=click.Path(exists=True), help='Path to config file')
 def list_environments_cmd(config: Optional[str]) -> None:
     """List available test environments."""
@@ -490,7 +487,7 @@ def list_environments_cmd(config: Optional[str]) -> None:
         sys.exit(2)
 
 
-@list.command('adapters')
+@list_cmd.command('adapters')
 def list_adapters_cmd() -> None:
     """List available test adapters."""
     table = Table(title="Available Adapters")
@@ -517,7 +514,7 @@ def list_adapters_cmd() -> None:
     console.print(table)
 
 
-@list.command('templates')
+@list_cmd.command('templates')
 def list_templates_cmd() -> None:
     """List available output templates."""
     from systemeval.templates import TemplateRenderer

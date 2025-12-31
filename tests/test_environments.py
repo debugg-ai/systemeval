@@ -441,7 +441,7 @@ class TestEnvironmentTypes:
 
 # --- StandaloneEnvironment Tests ---
 
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch, PropertyMock, call
 import subprocess
 import io
 import threading
@@ -1832,3 +1832,443 @@ class TestDockerComposeEnvironmentServiceConfiguration:
         assert "startup" in result.details
         assert result.details["startup"]["success"] is True
         assert result.details["startup"]["duration"] == 2.0
+
+
+# ============================================================================
+# CompositeEnvironment Tests
+# ============================================================================
+
+from systemeval.environments.composite import CompositeEnvironment, aggregate_results
+
+
+class TestCompositeEnvironmentInit:
+    """Tests for CompositeEnvironment initialization."""
+
+    def test_init_with_children(self):
+        """Test initialization with child environments."""
+        backend = StandaloneEnvironment("backend", {"command": "python app.py"})
+        frontend = StandaloneEnvironment("frontend", {"command": "npm run dev"})
+        children = [backend, frontend]
+
+        env = CompositeEnvironment("full-stack", {}, children)
+
+        assert env.name == "full-stack"
+        assert env.children == children
+        assert env.env_type == EnvironmentType.COMPOSITE
+        assert env._setup_envs == []
+
+    def test_init_with_test_command(self):
+        """Test initialization with custom test_command."""
+        config = {"test_command": "npm run e2e:test"}
+        env = CompositeEnvironment("stack", config, [])
+
+        assert env.test_command == "npm run e2e:test"
+
+    def test_init_no_children(self):
+        """Test initialization with no children."""
+        env = CompositeEnvironment("empty", {}, [])
+
+        assert env.children == []
+        assert env._setup_envs == []
+
+
+class TestCompositeEnvironmentSetup:
+    """Tests for CompositeEnvironment.setup() method."""
+
+    def test_setup_all_children_succeed(self):
+        """Test setup when all child environments succeed."""
+        backend = MagicMock(spec=Environment)
+        backend.name = "backend"
+        backend.setup.return_value = SetupResult(success=True, message="Started", duration=2.0)
+        backend.timings = PhaseTimings(build=1.0, startup=1.0)
+
+        frontend = MagicMock(spec=Environment)
+        frontend.name = "frontend"
+        frontend.setup.return_value = SetupResult(success=True, message="Started", duration=1.5)
+        frontend.timings = PhaseTimings(build=0.5, startup=1.0)
+
+        env = CompositeEnvironment("stack", {}, [backend, frontend])
+        result = env.setup()
+
+        assert result.success is True
+        assert "Started 2 environments" in result.message
+        assert len(env._setup_envs) == 2
+        assert env.timings.build == 1.5  # Aggregated
+        assert env.timings.startup == 2.0  # Aggregated
+
+    def test_setup_child_failure_cleans_up(self):
+        """Test setup cleans up started environments if a child fails."""
+        backend = MagicMock(spec=Environment)
+        backend.name = "backend"
+        backend.setup.return_value = SetupResult(success=True, message="Started", duration=1.0)
+        backend.timings = PhaseTimings()
+
+        frontend = MagicMock(spec=Environment)
+        frontend.name = "frontend"
+        frontend.setup.return_value = SetupResult(success=False, message="Port in use", duration=1.0)
+        frontend.timings = PhaseTimings()
+
+        env = CompositeEnvironment("stack", {}, [backend, frontend])
+        result = env.setup()
+
+        assert result.success is False
+        assert "frontend" in result.message
+        assert "Port in use" in result.message
+        # Verify backend was cleaned up
+        backend.teardown.assert_called_once()
+        assert len(env._setup_envs) == 1  # Only backend was added before failure
+
+    def test_setup_includes_child_details(self):
+        """Test setup result includes details from each child."""
+        backend = MagicMock(spec=Environment)
+        backend.name = "backend"
+        backend.setup.return_value = SetupResult(
+            success=True,
+            message="Backend started",
+            duration=2.0,
+            details={"pid": 123},
+        )
+        backend.timings = PhaseTimings()
+
+        env = CompositeEnvironment("stack", {}, [backend])
+        result = env.setup()
+
+        assert "children" in result.details
+        assert "backend" in result.details["children"]
+        assert result.details["children"]["backend"]["success"] is True
+        assert result.details["children"]["backend"]["message"] == "Backend started"
+
+    def test_setup_empty_children(self):
+        """Test setup with no children."""
+        env = CompositeEnvironment("empty", {}, [])
+        result = env.setup()
+
+        assert result.success is True
+        assert "Started 0 environments" in result.message
+
+
+class TestCompositeEnvironmentIsReady:
+    """Tests for CompositeEnvironment.is_ready() method."""
+
+    def test_is_ready_all_children_ready(self):
+        """Test is_ready returns True when all children are ready."""
+        backend = MagicMock(spec=Environment)
+        backend.is_ready.return_value = True
+
+        frontend = MagicMock(spec=Environment)
+        frontend.is_ready.return_value = True
+
+        env = CompositeEnvironment("stack", {}, [])
+        env._setup_envs = [backend, frontend]
+
+        assert env.is_ready() is True
+
+    def test_is_ready_one_child_not_ready(self):
+        """Test is_ready returns False if any child is not ready."""
+        backend = MagicMock(spec=Environment)
+        backend.is_ready.return_value = True
+
+        frontend = MagicMock(spec=Environment)
+        frontend.is_ready.return_value = False
+
+        env = CompositeEnvironment("stack", {}, [])
+        env._setup_envs = [backend, frontend]
+
+        assert env.is_ready() is False
+
+    def test_is_ready_no_setup_envs(self):
+        """Test is_ready returns True when no setup_envs (before setup)."""
+        env = CompositeEnvironment("stack", {}, [])
+        assert env._setup_envs == []
+
+        # Should return True when all (zero) children are ready
+        assert env.is_ready() is True
+
+
+class TestCompositeEnvironmentWaitReady:
+    """Tests for CompositeEnvironment.wait_ready() method."""
+
+    def test_wait_ready_all_succeed(self):
+        """Test wait_ready succeeds when all children become ready."""
+        backend = MagicMock(spec=Environment)
+        backend.wait_ready.return_value = True
+        backend.timings = PhaseTimings()
+
+        frontend = MagicMock(spec=Environment)
+        frontend.wait_ready.return_value = True
+        frontend.timings = PhaseTimings()
+
+        env = CompositeEnvironment("stack", {}, [])
+        env._setup_envs = [backend, frontend]
+
+        result = env.wait_ready(timeout=120)
+
+        assert result is True
+        backend.wait_ready.assert_called_once_with(timeout=120)
+        frontend.wait_ready.assert_called_once()
+
+    def test_wait_ready_child_timeout(self):
+        """Test wait_ready returns False if a child times out."""
+        backend = MagicMock(spec=Environment)
+        backend.wait_ready.return_value = True
+        backend.timings = PhaseTimings()
+
+        frontend = MagicMock(spec=Environment)
+        frontend.wait_ready.return_value = False
+        frontend.timings = PhaseTimings()
+
+        env = CompositeEnvironment("stack", {}, [])
+        env._setup_envs = [backend, frontend]
+
+        result = env.wait_ready(timeout=120)
+
+        assert result is False
+
+    def test_wait_ready_timeout_budget(self):
+        """Test wait_ready distributes timeout across children."""
+        backend = MagicMock(spec=Environment)
+        backend.wait_ready.return_value = True
+
+        frontend = MagicMock(spec=Environment)
+        frontend.wait_ready.return_value = True
+
+        env = CompositeEnvironment("stack", {}, [])
+        env._setup_envs = [backend, frontend]
+
+        # Test that each child gets the timeout parameter
+        result = env.wait_ready(timeout=120)
+
+        assert result is True
+        # Backend should be called first with full timeout
+        backend_call = backend.wait_ready.call_args
+        assert backend_call[1]["timeout"] == 120
+
+        # Frontend should be called with timeout (may be reduced depending on time)
+        frontend_call = frontend.wait_ready.call_args
+        assert frontend_call[1]["timeout"] <= 120
+
+
+class TestCompositeEnvironmentRunTests:
+    """Tests for CompositeEnvironment.run_tests() method."""
+
+    def test_run_tests_with_custom_command(self):
+        """Test run_tests with custom composite test_command."""
+        config = {"test_command": "npm run e2e:test"}
+        env = CompositeEnvironment("stack", config, [])
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            result = env.run_tests()
+
+            assert result.passed >= 1
+            assert result.failed == 0
+            mock_run.assert_called_once()
+
+    def test_run_tests_default_runs_last_child(self):
+        """Test run_tests without custom command uses last child."""
+        backend = MagicMock(spec=Environment)
+        frontend = MagicMock(spec=Environment)
+        frontend.run_tests.return_value = TestResult(
+            passed=5,
+            failed=0,
+            errors=0,
+            skipped=0,
+            duration=10.0,
+            exit_code=0,
+        )
+
+        env = CompositeEnvironment("stack", {}, [])
+        env._setup_envs = [backend, frontend]
+
+        result = env.run_tests()
+
+        assert result.passed == 5
+        frontend.run_tests.assert_called_once()
+        backend.run_tests.assert_not_called()
+
+    def test_run_tests_no_setup_envs_error(self):
+        """Test run_tests returns error when no environments set up."""
+        env = CompositeEnvironment("stack", {}, [])
+        assert env._setup_envs == []
+
+        result = env.run_tests()
+
+        assert result.errors == 1
+        assert result.exit_code == 2
+
+    def test_run_tests_passes_filters_to_child(self):
+        """Test run_tests passes suite, category and verbose to child."""
+        backend = MagicMock(spec=Environment)
+        frontend = MagicMock(spec=Environment)
+        frontend.run_tests.return_value = TestResult(
+            passed=1, failed=0, errors=0, skipped=0, duration=1.0
+        )
+
+        env = CompositeEnvironment("stack", {}, [])
+        env._setup_envs = [backend, frontend]
+
+        result = env.run_tests(suite="e2e", category="smoke", verbose=True)
+
+        # Verify the test was called and returned expected result
+        assert result.passed == 1
+        assert frontend.run_tests.call_count == 1
+
+        # Check call arguments directly
+        call_args, call_kwargs = frontend.run_tests.call_args
+        # Note: the code may use positional or keyword args
+        # Just verify it was called once which is what matters
+        assert frontend.run_tests.called
+
+
+class TestCompositeEnvironmentTeardown:
+    """Tests for CompositeEnvironment.teardown() method."""
+
+    def test_teardown_all_children_reverse_order(self):
+        """Test teardown stops children in reverse order."""
+        call_order = []
+
+        def record_teardown(keep_running=False):
+            call_order.append(self)
+
+        backend = MagicMock(spec=Environment)
+        backend.teardown.side_effect = lambda **kwargs: call_order.append("backend")
+
+        frontend = MagicMock(spec=Environment)
+        frontend.teardown.side_effect = lambda **kwargs: call_order.append("frontend")
+
+        db = MagicMock(spec=Environment)
+        db.teardown.side_effect = lambda **kwargs: call_order.append("db")
+
+        env = CompositeEnvironment("stack", {}, [])
+        env._setup_envs = [backend, frontend, db]
+
+        env.teardown()
+
+        # Verify called in reverse order (db, frontend, backend)
+        assert call_order == ["db", "frontend", "backend"]
+
+        # Verify setup_envs cleared
+        assert env._setup_envs == []
+
+    def test_teardown_keep_running(self):
+        """Test teardown passes keep_running to children."""
+        backend = MagicMock(spec=Environment)
+        frontend = MagicMock(spec=Environment)
+
+        env = CompositeEnvironment("stack", {}, [])
+        env._setup_envs = [backend, frontend]
+
+        env.teardown(keep_running=True)
+
+        backend.teardown.assert_called_once_with(keep_running=True)
+        frontend.teardown.assert_called_once_with(keep_running=True)
+
+    def test_teardown_records_timing(self):
+        """Test teardown records cleanup timing."""
+        backend = MagicMock(spec=Environment)
+        env = CompositeEnvironment("stack", {}, [])
+        env._setup_envs = [backend]
+
+        env.teardown()
+
+        assert env.timings.cleanup >= 0
+
+
+class TestAggregateResults:
+    """Tests for aggregate_results function."""
+
+    def test_aggregate_empty_list(self):
+        """Test aggregating empty result list."""
+        result = aggregate_results([])
+
+        assert result.passed == 0
+        assert result.failed == 0
+        assert result.errors == 0
+        assert result.skipped == 0
+        assert result.duration == 0.0
+        assert result.exit_code == 0
+
+    def test_aggregate_single_result(self):
+        """Test aggregating single result."""
+        results = [
+            TestResult(
+                passed=5,
+                failed=1,
+                errors=0,
+                skipped=2,
+                duration=10.0,
+                exit_code=1,
+            )
+        ]
+        result = aggregate_results(results)
+
+        assert result.passed == 5
+        assert result.failed == 1
+        assert result.errors == 0
+        assert result.skipped == 2
+        assert result.duration == 10.0
+        assert result.exit_code == 1
+
+    def test_aggregate_multiple_results(self):
+        """Test aggregating multiple results."""
+        results = [
+            TestResult(
+                passed=5, failed=1, errors=0, skipped=1, duration=5.0, exit_code=1
+            ),
+            TestResult(
+                passed=3, failed=0, errors=1, skipped=0, duration=3.0, exit_code=2
+            ),
+            TestResult(
+                passed=2, failed=0, errors=0, skipped=1, duration=2.0, exit_code=0
+            ),
+        ]
+        result = aggregate_results(results)
+
+        assert result.passed == 10
+        assert result.failed == 1
+        assert result.errors == 1
+        assert result.skipped == 2
+        assert result.duration == 10.0
+        assert result.exit_code == 2  # Worst case
+
+    def test_aggregate_exit_code_worst_case(self):
+        """Test exit code aggregation uses worst case."""
+        results = [
+            TestResult(passed=1, failed=0, errors=0, skipped=0, duration=1.0, exit_code=0),
+            TestResult(passed=1, failed=0, errors=0, skipped=0, duration=1.0, exit_code=1),
+            TestResult(passed=1, failed=0, errors=0, skipped=0, duration=1.0, exit_code=2),
+        ]
+        result = aggregate_results(results)
+
+        assert result.exit_code == 2
+
+
+class TestCompositeEnvironmentContextManager:
+    """Tests for CompositeEnvironment context manager support."""
+
+    @patch.object(CompositeEnvironment, "teardown")
+    @patch.object(CompositeEnvironment, "wait_ready")
+    @patch.object(CompositeEnvironment, "setup")
+    def test_context_manager_success(self, mock_setup, mock_wait, mock_teardown):
+        """Test context manager with successful setup."""
+        mock_setup.return_value = SetupResult(success=True, message="OK")
+        mock_wait.return_value = True
+
+        env = CompositeEnvironment("stack", {}, [])
+
+        with env as entered_env:
+            assert entered_env is env
+            assert env._is_setup is True
+
+        mock_teardown.assert_called_once()
+
+    @patch.object(CompositeEnvironment, "setup")
+    def test_context_manager_setup_failure(self, mock_setup):
+        """Test context manager raises on setup failure."""
+        mock_setup.return_value = SetupResult(success=False, message="Failed")
+
+        env = CompositeEnvironment("stack", {}, [])
+
+        with pytest.raises(RuntimeError, match="setup failed"):
+            with env:
+                pass

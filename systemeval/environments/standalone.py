@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Union
 
 logger = logging.getLogger(__name__)
 
-from systemeval.adapters import TestResult, Verdict
+from systemeval.adapters import TestResult
 from systemeval.environments.base import Environment, EnvironmentType, SetupResult
 from systemeval.environments.executor import TestExecutor
 

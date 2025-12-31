@@ -101,7 +101,6 @@ class TestJSONOutput:
         # Check metadata
         metadata = data["metadata"]
         assert "evaluation_id" in metadata
-        assert "run_hash" in metadata
         assert "timestamp_utc" in metadata
         assert "schema_version" in metadata
         assert metadata["schema_version"] == SCHEMA_VERSION

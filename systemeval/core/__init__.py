@@ -68,7 +68,7 @@ from .criteria import (
     error_rate_maximum,
     pass_rate_minimum,
 )
-from .reporter import Reporter, create_reporter
+from .reporter import Reporter
 from .evaluation import (
     EvaluationResult,
     EvaluationMetadata,
@@ -120,7 +120,6 @@ __all__ = [
     "duration_within",
     # Reporter
     "Reporter",
-    "create_reporter",
     # Evaluation (PRIMARY schema - use this!)
     "Verdict",
     "MetricResult",

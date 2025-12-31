@@ -5,9 +5,9 @@ This is the singular contract that ALL evaluations MUST conform to.
 
 Enforces:
 1. Singular entrypoint - One schema for all evaluation types
-2. Non-fungible - Unique IDs + content hashing
+2. Non-fungible - Unique IDs
 3. Objective - Binary verdict, deterministic
-4. Repeatable - Same inputs = same run_hash
+4. Repeatable - Same inputs = same verdict
 5. Structured output - JSON Schema compliant, AI-parseable
 
 Usage:
@@ -18,13 +18,12 @@ Usage:
     )
 
     result.add_session(SessionResult(...))
-    result.finalize()  # Computes verdict, hash, duration
+    result.finalize()  # Computes duration
 
     # Output
     result.to_json()
     result.to_dict()
 """
-import hashlib
 import json
 import os
 import socket
@@ -189,13 +188,11 @@ class EvaluationMetadata:
 
     Every evaluation is uniquely identifiable via:
     - evaluation_id: UUID for this specific run
-    - run_hash: Content-based hash for reproducibility verification
     - timestamp_utc: When the evaluation was performed
     - environment: Git commit, branch, host, etc.
     """
     # Unique identifiers
     evaluation_id: str  # UUID4 - globally unique
-    run_hash: str = ""  # SHA256 content hash (computed after finalization)
 
     # Temporal
     timestamp_utc: str = ""  # ISO 8601 with microseconds
@@ -218,7 +215,6 @@ class EvaluationMetadata:
     def to_dict(self) -> Dict[str, Any]:
         return {
             "evaluation_id": self.evaluation_id,
-            "run_hash": self.run_hash,
             "timestamp_utc": self.timestamp_utc,
             "duration_seconds": self.duration_seconds,
             "environment": self.environment,
@@ -239,9 +235,9 @@ class EvaluationResult:
 
     Principles:
     1. Singular entrypoint - One schema for all evaluation types
-    2. Non-fungible - Unique IDs + content hashing
+    2. Non-fungible - Unique IDs
     3. Objective - Binary verdict, deterministic
-    4. Repeatable - Same inputs = same run_hash
+    4. Repeatable - Same inputs = same verdict
     5. Structured output - JSON Schema compliant, AI-parseable
 
     CASCADE RULE: If ANY session fails, the evaluation FAILS.
@@ -326,8 +322,6 @@ class EvaluationResult:
 
         Computes:
         - Total duration
-        - Content hash for reproducibility
-        - Final timestamp
         """
         if self._finalized:
             return
@@ -336,42 +330,7 @@ class EvaluationResult:
         if self._start_time:
             self.metadata.duration_seconds = time.time() - self._start_time
 
-        # Compute content hash
-        self.metadata.run_hash = self._compute_hash()
-
         self._finalized = True
-
-    def _compute_hash(self) -> str:
-        """
-        Compute deterministic content hash for reproducibility.
-
-        Hash is computed from result content (excluding timestamps
-        and non-deterministic metadata).
-        """
-        hash_content = {
-            "adapter_type": self.metadata.adapter_type,
-            "category": self.metadata.category,
-            "project_name": self.metadata.project_name,
-            "verdict": self.verdict.value,
-            "sessions": [
-                {
-                    "session_name": s.session_name,
-                    "verdict": s.verdict.value,
-                    "metrics": [
-                        {
-                            "name": m.name,
-                            "value": str(m.value),  # Stringify for consistency
-                            "passed": m.passed,
-                        }
-                        for m in s.metrics
-                    ],
-                }
-                for s in self.sessions
-            ],
-        }
-
-        hash_str = json.dumps(hash_content, sort_keys=True)
-        return hashlib.sha256(hash_str.encode()).hexdigest()[:16]
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to JSON-serializable dictionary."""

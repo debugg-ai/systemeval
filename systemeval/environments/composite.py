@@ -2,6 +2,22 @@
 Composite environment for multi-environment orchestration.
 
 Combines multiple environments (e.g., backend + frontend for full-stack testing).
+
+USAGE:
+    Composite environments enable full-stack testing by orchestrating multiple
+    child environments. This is useful for scenarios where you need both backend
+    and frontend (or other service combinations) running together.
+
+CONFIGURATION:
+    type: composite
+    depends_on:
+      - backend
+      - frontend
+    test_command: "npm run e2e:test"
+
+DEPRECATED FEATURES:
+    None currently. CompositeEnvironment is actively used for multi-environment
+    orchestration and is fully supported.
 """
 import time
 from typing import Any, Dict, List, Optional

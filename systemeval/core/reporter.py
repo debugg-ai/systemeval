@@ -215,32 +215,3 @@ class Reporter:
             self.console.print(f"JUnit XML report written to: {output_file}")
         else:
             self.console.print(output)
-
-
-def create_reporter(
-    format: str = "table",
-    verbose: bool = False,
-    colors: bool = True,
-    show_passed: bool = False,
-    show_metrics: bool = True,
-) -> Reporter:
-    """
-    Factory function to create a reporter instance.
-
-    Args:
-        format: Output format (table, json, junit)
-        verbose: Show detailed output
-        colors: Enable color output
-        show_passed: Show passed sessions
-        show_metrics: Show metric details
-
-    Returns:
-        Configured Reporter instance
-    """
-    return Reporter(
-        format=format,
-        verbose=verbose,
-        colors=colors,
-        show_passed=show_passed,
-        show_metrics=show_metrics,
-    )

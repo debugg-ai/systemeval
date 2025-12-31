@@ -282,17 +282,15 @@ class TestEvaluationResult:
         assert result.verdict == Verdict.ERROR
         assert result.exit_code == 2
 
-    def test_evaluation_finalize_computes_hash(self):
-        """Test that finalize computes run_hash."""
+    def test_evaluation_finalize_completes(self):
+        """Test that finalize completes successfully."""
         result = create_evaluation("test")
         session = create_session("s1")
         session.metrics.append(metric("m1", 1, "1", True))
         result.add_session(session)
 
-        assert result.metadata.run_hash == ""
         result.finalize()
-        assert result.metadata.run_hash != ""
-        assert len(result.metadata.run_hash) == 16  # SHA256 truncated
+        assert result._finalized is True
 
     def test_evaluation_finalize_idempotent(self):
         """Test that finalize is idempotent."""
@@ -302,12 +300,12 @@ class TestEvaluationResult:
         result.add_session(session)
 
         result.finalize()
-        hash1 = result.metadata.run_hash
+        duration1 = result.metadata.duration_seconds
 
         result.finalize()  # second call
-        hash2 = result.metadata.run_hash
+        duration2 = result.metadata.duration_seconds
 
-        assert hash1 == hash2
+        assert duration1 == duration2
 
     def test_evaluation_cannot_add_after_finalize(self):
         """Test that adding session after finalize raises error."""
@@ -366,64 +364,6 @@ class TestEvaluationResult:
         assert result.passed == 2
         assert result.failed == 1
         assert result.total == 3
-
-
-class TestHashReproducibility:
-    """Tests for content hash reproducibility."""
-
-    def test_same_content_same_hash(self):
-        """Test that same content produces same hash."""
-        def make_result():
-            r = create_evaluation("pytest", category="unit", project_name="test")
-            s = create_session("tests")
-            s.metrics.append(metric("count", 10, ">0", True))
-            r.add_session(s)
-            r.finalize()
-            return r
-
-        result1 = make_result()
-        result2 = make_result()
-
-        # Hashes should be the same for same content
-        assert result1.metadata.run_hash == result2.metadata.run_hash
-
-    def test_different_content_different_hash(self):
-        """Test that different content produces different hash."""
-        result1 = create_evaluation("pytest")
-        s1 = create_session("tests")
-        s1.metrics.append(metric("count", 10, ">0", True))
-        result1.add_session(s1)
-        result1.finalize()
-
-        result2 = create_evaluation("pytest")
-        s2 = create_session("tests")
-        s2.metrics.append(metric("count", 20, ">0", True))  # different value
-        result2.add_session(s2)
-        result2.finalize()
-
-        assert result1.metadata.run_hash != result2.metadata.run_hash
-
-    def test_hash_excludes_timestamps(self):
-        """Test that hash is not affected by timestamps."""
-        import time
-
-        result1 = create_evaluation("pytest")
-        s1 = create_session("tests")
-        s1.metrics.append(metric("count", 10, ">0", True))
-        result1.add_session(s1)
-        result1.finalize()
-
-        time.sleep(0.01)  # small delay
-
-        result2 = create_evaluation("pytest")
-        s2 = create_session("tests")
-        s2.metrics.append(metric("count", 10, ">0", True))
-        result2.add_session(s2)
-        result2.finalize()
-
-        # Different timestamps but same hash
-        assert result1.metadata.timestamp_utc != result2.metadata.timestamp_utc
-        assert result1.metadata.run_hash == result2.metadata.run_hash
 
 
 class TestEnvironmentCapture:
