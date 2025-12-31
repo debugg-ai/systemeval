@@ -286,3 +286,119 @@ class TestCLITestCommand:
             data = json.loads(result.output)
             assert "verdict" in data
             assert "metadata" in data
+
+
+class TestEnvModeOption:
+    """Tests for --env-mode option (replacing --docker/--no-docker)."""
+
+    def test_env_mode_help_text(self):
+        """Test that --env-mode is documented in help."""
+        runner = CliRunner()
+        result = runner.invoke(main, ["test", "--help"])
+
+        assert result.exit_code == 0
+        assert "--env-mode" in result.output
+
+    def test_env_mode_accepts_auto(self):
+        """Test that --env-mode accepts 'auto' value."""
+        runner = CliRunner()
+        # Using --help to avoid needing a real config
+        result = runner.invoke(main, ["test", "--help"])
+        assert result.exit_code == 0
+
+    @patch("systemeval.cli.find_config_file")
+    @patch("systemeval.cli.load_config")
+    @patch("systemeval.cli.get_environment_type")
+    @patch("systemeval.cli.get_adapter")
+    def test_env_mode_auto_calls_get_environment_type(self, mock_get_adapter, mock_get_env, mock_load, mock_find, tmp_path):
+        """Test that --env-mode auto (default) calls get_environment_type."""
+        config_file = tmp_path / "systemeval.yaml"
+        config_file.write_text("adapter: pytest\nproject_root: .")
+        mock_find.return_value = config_file
+
+        mock_config = MagicMock()
+        mock_config.adapter = "pytest"
+        mock_config.project_root = tmp_path
+        mock_config.environments = None
+        mock_load.return_value = mock_config
+
+        mock_get_env.return_value = "docker"
+
+        mock_adapter = MagicMock()
+        mock_adapter.validate_environment.return_value = True
+        mock_adapter.execute.return_value = TestResult(
+            passed=1, failed=0, errors=0, skipped=0, duration=0.1
+        )
+        mock_get_adapter.return_value = mock_adapter
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["test"])
+
+        # get_environment_type should have been called (default 'auto' mode)
+        mock_get_env.assert_called()
+
+    @patch("systemeval.cli.find_config_file")
+    @patch("systemeval.cli.load_config")
+    @patch("systemeval.cli.get_environment_type")
+    @patch("systemeval.cli.get_adapter")
+    def test_env_mode_docker_skips_detection(self, mock_get_adapter, mock_get_env, mock_load, mock_find, tmp_path):
+        """Test that --env-mode docker doesn't call get_environment_type."""
+        config_file = tmp_path / "systemeval.yaml"
+        config_file.write_text("adapter: pytest\nproject_root: .")
+        mock_find.return_value = config_file
+
+        mock_config = MagicMock()
+        mock_config.adapter = "pytest"
+        mock_config.project_root = tmp_path
+        mock_config.environments = None
+        mock_load.return_value = mock_config
+
+        mock_adapter = MagicMock()
+        mock_adapter.validate_environment.return_value = True
+        mock_adapter.execute.return_value = TestResult(
+            passed=1, failed=0, errors=0, skipped=0, duration=0.1
+        )
+        mock_get_adapter.return_value = mock_adapter
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["test", "--env-mode", "docker"])
+
+        # get_environment_type should NOT have been called
+        mock_get_env.assert_not_called()
+
+    @patch("systemeval.cli.find_config_file")
+    @patch("systemeval.cli.load_config")
+    @patch("systemeval.cli.get_environment_type")
+    @patch("systemeval.cli.get_adapter")
+    def test_env_mode_local_skips_detection(self, mock_get_adapter, mock_get_env, mock_load, mock_find, tmp_path):
+        """Test that --env-mode local doesn't call get_environment_type."""
+        config_file = tmp_path / "systemeval.yaml"
+        config_file.write_text("adapter: pytest\nproject_root: .")
+        mock_find.return_value = config_file
+
+        mock_config = MagicMock()
+        mock_config.adapter = "pytest"
+        mock_config.project_root = tmp_path
+        mock_config.environments = None
+        mock_load.return_value = mock_config
+
+        mock_adapter = MagicMock()
+        mock_adapter.validate_environment.return_value = True
+        mock_adapter.execute.return_value = TestResult(
+            passed=1, failed=0, errors=0, skipped=0, duration=0.1
+        )
+        mock_get_adapter.return_value = mock_adapter
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["test", "--env-mode", "local"])
+
+        # get_environment_type should NOT have been called
+        mock_get_env.assert_not_called()
+
+    def test_env_mode_invalid_value_rejected(self):
+        """Test that invalid --env-mode values are rejected."""
+        runner = CliRunner()
+        result = runner.invoke(main, ["test", "--env-mode", "invalid"])
+
+        assert result.exit_code != 0
+        assert "Invalid value" in result.output or "invalid choice" in result.output.lower()

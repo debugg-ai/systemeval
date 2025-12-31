@@ -1,45 +1,7 @@
-"""Pipeline adapter implementation for Django pipeline evaluation.
-
-This adapter integrates DebuggAI's full pipeline testing (build → deploy → health → crawl → E2E)
-with the systemeval framework using a repository abstraction layer.
-
-Architecture:
-    The adapter follows the Dependency Inversion Principle:
-    - Public interface depends on ProjectRepository protocol (abstraction)
-    - DjangoProjectRepository implements the protocol (concrete implementation)
-    - Repository can be injected for testing or alternative implementations
-
-    The abstraction is applied at the adapter's public interface level:
-    - __init__, discover(), execute() use the repository abstraction
-    - Private helper methods (_poll_for_completion, _collect_metrics) work with
-      Django instances for database operations, as they're internal implementation details
-
-Race Condition Mitigation (SE-ah2):
-    To prevent concurrent pipeline executions from mixing metrics, the adapter:
-    - Filters all database queries by session_start timestamp
-    - Uses pipeline_execution FK correlation for E2E runs when available
-    - Correlates containers with specific environments for KG lookups
-    - Stores execution context (_session_start, _pe_id, etc.) for verification
-
-    This ensures that metrics collected belong to the specific execution session,
-    not to concurrent runs on the same project.
-
-Usage:
-    # Default: Automatically creates DjangoProjectRepository
-    adapter = PipelineAdapter('/path/to/sentinal/backend')
-
-    # Explicit: Inject repository for testing
-    from systemeval.adapters.repositories import MockProjectRepository
-    repo = MockProjectRepository()
-    adapter = PipelineAdapter('/path', repository=repo)
-
-    tests = adapter.discover(category='pipeline')
-    result = adapter.execute(tests, timeout=600)
-"""
+"""Pipeline adapter implementation for Django pipeline evaluation."""
 
 import hashlib
 import json
-import logging
 import secrets
 import time
 from typing import Any, Dict, List, Optional
@@ -53,22 +15,14 @@ from systemeval.core.evaluation import (
     metric,
 )
 from systemeval.utils.django import setup_django
+from systemeval.utils.logging import get_logger
 from systemeval.utils.retry import RetryConfig, retry_with_backoff
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class PipelineAdapter(BaseAdapter):
-    """Adapter for Django pipeline evaluation.
-
-    Triggers full pipeline workflows (GitHub webhook → build → deploy → health → crawl → E2E tests)
-    and evaluates success based on PIPELINE_CRITERIA:
-    - build_status == "succeeded"
-    - container_healthy == True
-    - kg_exists == True
-    - kg_pages > 0
-    - e2e_error_rate == 0
-    """
+    """Adapter for Django pipeline evaluation."""
 
     # Hardcoded pipeline criteria (matches PIPELINE_CRITERIA from backend.core.testing)
     CRITERIA = {
@@ -85,15 +39,7 @@ class PipelineAdapter(BaseAdapter):
         repository: Optional[ProjectRepository] = None,
         retry_config: Optional[RetryConfig] = None,
     ) -> None:
-        """Initialize pipeline adapter.
-
-        Args:
-            project_root: Absolute path to the Django backend directory
-            repository: Optional repository implementation. If not provided,
-                       will attempt to create DjangoProjectRepository.
-            retry_config: Optional retry configuration for transient failures.
-                         Defaults to 3 retries with 1s initial delay.
-        """
+        """Initialize pipeline adapter with repository and retry config."""
         super().__init__(project_root)
         self._repository = repository
 
@@ -122,11 +68,7 @@ class PipelineAdapter(BaseAdapter):
         setup_django(self.project_root)
 
     def validate_environment(self) -> bool:
-        """Validate that the repository is available.
-
-        Returns:
-            True if environment is valid, False otherwise
-        """
+        """Validate that the repository is available."""
         if self._repository is None:
             logger.error("No repository configured")
             return False
@@ -145,16 +87,7 @@ class PipelineAdapter(BaseAdapter):
         app: Optional[str] = None,
         file: Optional[str] = None,
     ) -> List[TestItem]:
-        """Discover projects to test.
-
-        Args:
-            category: Test marker to filter by (e.g., 'pipeline', 'build')
-            app: Unused for pipeline adapter
-            file: Unused for pipeline adapter
-
-        Returns:
-            List of test items (one per project)
-        """
+        """Discover projects to test."""
         if self._repository is None:
             logger.error("No repository configured for discovery")
             return []
@@ -199,23 +132,7 @@ class PipelineAdapter(BaseAdapter):
         sync_mode: bool = False,
         skip_build: bool = False,
     ) -> TestResult:
-        """Execute pipeline tests and return results.
-
-        Args:
-            tests: Specific test items to run (None = run all)
-            parallel: Unused for pipeline adapter (always sequential)
-            coverage: Unused for pipeline adapter
-            failfast: Stop on first failure
-            verbose: Verbose output
-            timeout: Max time to wait per project in seconds (default: 600)
-            projects: List of project slugs to evaluate
-            poll_interval: Seconds between status checks (default: 15)
-            sync_mode: Run webhooks synchronously
-            skip_build: Skip build, use existing containers
-
-        Returns:
-            Test execution results
-        """
+        """Execute pipeline tests and return results."""
         import time
 
         if self._repository is None:
@@ -279,7 +196,7 @@ class PipelineAdapter(BaseAdapter):
 
         for test in tests:
             if verbose:
-                print(f"\n--- Evaluating: {test.name} ---")
+                logger.info(f"\n--- Evaluating: {test.name} ---")
 
             try:
                 # Get project data
@@ -314,7 +231,7 @@ class PipelineAdapter(BaseAdapter):
                 if self._metrics_pass(metrics):
                     passed += 1
                     if verbose:
-                        print(f"  -> PASS ({session_duration:.1f}s)")
+                        logger.info(f"  -> PASS ({session_duration:.1f}s)")
                 else:
                     failed += 1
                     failure_msg = self._get_failure_message(metrics)
@@ -328,7 +245,7 @@ class PipelineAdapter(BaseAdapter):
                         )
                     )
                     if verbose:
-                        print(f"  -> FAIL: {failure_msg}")
+                        logger.info(f"  -> FAIL: {failure_msg}")
 
                     if failfast:
                         break
@@ -375,11 +292,7 @@ class PipelineAdapter(BaseAdapter):
         return result
 
     def get_available_markers(self) -> List[str]:
-        """Return available test markers/categories.
-
-        Returns:
-            List of marker names
-        """
+        """Return available test markers/categories."""
         return ["pipeline", "build", "health", "crawl", "e2e"]
 
     # =========================================================================
@@ -436,7 +349,7 @@ class PipelineAdapter(BaseAdapter):
             repo = project.repo
             if not repo:
                 if verbose:
-                    print("  No repository associated with project")
+                    logger.warning("  No repository associated with project")
                 return False
 
             # Use repository abstraction to get installation
@@ -447,14 +360,14 @@ class PipelineAdapter(BaseAdapter):
 
             if not installation_data:
                 if verbose:
-                    print("  No GitHub installation found")
+                    logger.warning("  No GitHub installation found")
                 return False
 
             # Get installation instance for Django-specific operations
             repo_install = installation_data.get("_instance")
             if not repo_install:
                 if verbose:
-                    print("  Repository installation not available")
+                    logger.warning("  Repository installation not available")
                 return False
 
             # Get latest commit SHA from existing execution
@@ -510,7 +423,7 @@ class PipelineAdapter(BaseAdapter):
             else:
                 task = process_push_webhook.delay(payload_hash, payload, repo.id)
                 if verbose:
-                    print(f"  Task queued: {task.id}")
+                    logger.debug(f"  Task queued: {task.id}")
 
             return True
 
@@ -519,7 +432,7 @@ class PipelineAdapter(BaseAdapter):
         except Exception as e:
             logger.exception(f"Failed to trigger webhook for {project.name} after retries")
             if verbose:
-                print(f"  Webhook trigger failed after retries: {e}")
+                logger.error(f"  Webhook trigger failed after retries: {e}")
             return False
 
     def _poll_for_completion(
@@ -722,7 +635,7 @@ class PipelineAdapter(BaseAdapter):
                         "healthy" if metrics.get("container_healthy") else "pending"
                     )
                     exec_info = f"pe={pe_id[:8] if pe_id else 'none'}" if pe_id else ""
-                    print(
+                    logger.debug(
                         f"  [+{elapsed}s] "
                         f"build={build_status} "
                         f"container={container_status} "

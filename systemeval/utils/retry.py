@@ -1,8 +1,4 @@
-"""Retry utilities with exponential backoff for transient failures.
-
-This module provides retry decorators and utilities for handling transient
-failures in network requests, API calls, and polling operations.
-"""
+"""Retry utilities with exponential backoff for transient failures."""
 
 import functools
 import logging
@@ -23,15 +19,7 @@ class RetryConfig:
         exponential_base: float = 2.0,
         exceptions: Tuple[Type[Exception], ...] = (Exception,),
     ):
-        """Initialize retry configuration.
-
-        Args:
-            max_attempts: Maximum number of retry attempts (default: 3)
-            initial_delay: Initial delay in seconds before first retry (default: 1.0)
-            max_delay: Maximum delay in seconds between retries (default: 60.0)
-            exponential_base: Base for exponential backoff (default: 2.0)
-            exceptions: Tuple of exception types to catch and retry (default: (Exception,))
-        """
+        """Initialize retry configuration with backoff parameters."""
         self.max_attempts = max_attempts
         self.initial_delay = initial_delay
         self.max_delay = max_delay
@@ -39,14 +27,7 @@ class RetryConfig:
         self.exceptions = exceptions
 
     def calculate_delay(self, attempt: int) -> float:
-        """Calculate delay for a given attempt using exponential backoff.
-
-        Args:
-            attempt: The current attempt number (0-indexed)
-
-        Returns:
-            Delay in seconds, capped at max_delay
-        """
+        """Calculate delay for a given attempt using exponential backoff."""
         delay = self.initial_delay * (self.exponential_base ** attempt)
         return min(delay, self.max_delay)
 
@@ -59,25 +40,7 @@ def retry_with_backoff(
     exceptions: Tuple[Type[Exception], ...] = (Exception,),
     logger_instance: Optional[logging.Logger] = None,
 ) -> Callable:
-    """Decorator that retries a function with exponential backoff.
-
-    Args:
-        max_attempts: Maximum number of retry attempts (default: 3)
-        initial_delay: Initial delay in seconds before first retry (default: 1.0)
-        max_delay: Maximum delay in seconds between retries (default: 60.0)
-        exponential_base: Base for exponential backoff (default: 2.0)
-        exceptions: Tuple of exception types to catch and retry (default: (Exception,))
-        logger_instance: Optional logger instance for logging retry attempts
-
-    Returns:
-        Decorated function with retry logic
-
-    Example:
-        @retry_with_backoff(max_attempts=5, initial_delay=2.0)
-        def unreliable_api_call():
-            response = requests.get("https://api.example.com/data")
-            return response.json()
-    """
+    """Decorator that retries a function with exponential backoff on specified exceptions."""
     config = RetryConfig(
         max_attempts=max_attempts,
         initial_delay=initial_delay,
@@ -130,28 +93,7 @@ def retry_on_condition(
     exponential_base: float = 2.0,
     logger_instance: Optional[logging.Logger] = None,
 ) -> Callable:
-    """Decorator that retries a function when a condition is met on the return value.
-
-    Unlike retry_with_backoff which retries on exceptions, this decorator retries
-    when the return value matches a condition (e.g., response is None, status is pending).
-
-    Args:
-        condition: Callable that takes the function's return value and returns True
-                  if retry is needed, False otherwise
-        max_attempts: Maximum number of retry attempts (default: 3)
-        initial_delay: Initial delay in seconds before first retry (default: 1.0)
-        max_delay: Maximum delay in seconds between retries (default: 60.0)
-        exponential_base: Base for exponential backoff (default: 2.0)
-        logger_instance: Optional logger instance for logging retry attempts
-
-    Returns:
-        Decorated function with conditional retry logic
-
-    Example:
-        @retry_on_condition(lambda x: x is None, max_attempts=5)
-        def fetch_data():
-            return api.get_maybe_available_data()
-    """
+    """Decorator that retries a function when a condition is met on the return value."""
     config = RetryConfig(
         max_attempts=max_attempts,
         initial_delay=initial_delay,
@@ -200,27 +142,7 @@ def execute_with_retry(
     *args: Any,
     **kwargs: Any,
 ) -> Any:
-    """Execute a function with retry logic (functional alternative to decorator).
-
-    Args:
-        func: Function to execute
-        config: Optional RetryConfig instance (uses defaults if None)
-        logger_instance: Optional logger instance
-        *args: Positional arguments to pass to func
-        **kwargs: Keyword arguments to pass to func
-
-    Returns:
-        Result of the function call
-
-    Example:
-        config = RetryConfig(max_attempts=5, initial_delay=2.0)
-        result = execute_with_retry(
-            unreliable_function,
-            config=config,
-            arg1="value1",
-            arg2="value2"
-        )
-    """
+    """Execute a function with retry logic (functional alternative to decorator)."""
     if config is None:
         config = RetryConfig()
 

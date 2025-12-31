@@ -20,6 +20,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from systemeval.adapters import TestResult
+from systemeval.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 # Compiled regex patterns for test output parsing
@@ -194,6 +197,7 @@ class TestExecutor:
         shell: bool,
     ) -> ExecutionResult:
         """Execute a single command."""
+        logger.debug(f"Executing command: {command[:100]}{'...' if len(command) > 100 else ''}")
         start = time.time()
 
         # Build environment
@@ -204,6 +208,7 @@ class TestExecutor:
 
         # Ensure working directory exists
         if not self.working_dir.exists():
+            logger.error(f"Working directory does not exist: {self.working_dir}")
             return ExecutionResult(
                 exit_code=2,
                 stdout="",
@@ -218,6 +223,7 @@ class TestExecutor:
             else:
                 return self._execute_capture(command, timeout, full_env, shell, start)
         except subprocess.TimeoutExpired:
+            logger.warning(f"Command timed out after {timeout}s: {command[:50]}...")
             return ExecutionResult(
                 exit_code=124,
                 stdout="\n".join(self._output_buffer),
@@ -226,6 +232,7 @@ class TestExecutor:
                 command=command,
             )
         except Exception as e:
+            logger.error(f"Command execution failed: {e}")
             return ExecutionResult(
                 exit_code=1,
                 stdout="",
@@ -887,6 +894,7 @@ class DockerExecutor(TestExecutor):
         stream: bool,
     ) -> ExecutionResult:
         """Execute a single command via docker compose exec."""
+        logger.debug(f"Executing in Docker container '{self.container}': {command[:100]}...")
         start = time.time()
 
         # Build docker compose exec command

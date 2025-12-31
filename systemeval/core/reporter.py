@@ -1,14 +1,4 @@
-"""
-Unified output formatting and reporting.
-
-Uses rich library for beautiful terminal output with color-coded results.
-Supports multiple output formats: table, json, junit.
-
-SCHEMA HIERARCHY:
-- Reporter uses EvaluationResult (from evaluation.py) as the primary schema
-- EvaluationResult is the SINGULAR output format for all evaluations
-- Legacy SequenceResult/SessionResult from result.py are DEPRECATED
-"""
+"""Unified output formatting and reporting using rich library."""
 
 import json
 from pathlib import Path
@@ -23,11 +13,7 @@ from .evaluation import EvaluationResult, Verdict
 
 
 class Reporter:
-    """
-    Unified reporter for test results.
-
-    Supports multiple output formats with consistent styling.
-    """
+    """Unified reporter for test results."""
 
     def __init__(
         self,
@@ -37,16 +23,7 @@ class Reporter:
         show_passed: bool = False,
         show_metrics: bool = True,
     ):
-        """
-        Initialize reporter.
-
-        Args:
-            format: Output format (table, json, junit)
-            verbose: Show detailed output
-            colors: Enable color output
-            show_passed: Show passed sessions (default: only failures)
-            show_metrics: Show metric details
-        """
+        """Initialize reporter with output format and options."""
         self.format = format
         self.verbose = verbose
         self.show_passed = show_passed
@@ -54,13 +31,7 @@ class Reporter:
         self.console = Console(force_terminal=colors, no_color=not colors)
 
     def report(self, result: EvaluationResult, output_file: Optional[Path] = None) -> None:
-        """
-        Generate and output test report.
-
-        Args:
-            result: EvaluationResult to report
-            output_file: Optional file to write output to
-        """
+        """Generate and output test report in configured format."""
         if self.format == "json":
             self._report_json(result, output_file)
         elif self.format == "junit":

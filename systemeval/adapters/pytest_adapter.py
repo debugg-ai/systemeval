@@ -18,6 +18,9 @@ except ImportError:
 
 from .base import BaseAdapter, TestFailure, TestItem, TestResult
 from systemeval.utils.django import detect_django_settings
+from systemeval.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class PytestCollectPlugin:
@@ -247,7 +250,7 @@ class PytestAdapter(BaseAdapter):
 
                 args.extend(["-n", "auto"])
             except ImportError:
-                print("Warning: pytest-xdist not installed, running serially")
+                logger.warning("pytest-xdist not installed, running serially")
 
         # Coverage
         if coverage:
@@ -256,7 +259,7 @@ class PytestAdapter(BaseAdapter):
 
                 args.extend(["--cov", self.project_root, "--cov-report", "term-missing"])
             except ImportError:
-                print("Warning: pytest-cov not installed, skipping coverage")
+                logger.warning("pytest-cov not installed, skipping coverage")
 
         # Timeout
         if timeout:

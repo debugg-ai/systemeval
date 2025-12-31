@@ -131,7 +131,7 @@ Every test run produces a result conforming to this schema:
   "failed": 2,
   "errors": 0,
   "skipped": 5,
-  "duration": 12.345,
+  "duration_seconds": 12.345,
   "category": "unit",
   "coverage_percent": 87.5
 }
@@ -198,21 +198,20 @@ For multi-session evaluations:
 systemeval test [OPTIONS]
 
 Options:
-  -c, --category TEXT      Test category (unit, integration, api, e2e)
-  -a, --app TEXT           Specific app/module to test
-  -f, --file TEXT          Specific test file to run
-  -p, --parallel           Run tests in parallel
-  --coverage               Collect coverage data
-  -x, --failfast           Stop on first failure
-  -v, --verbose            Verbose output
-  --json                   Output results as JSON
-  -t, --template TEXT      Output template name
-  --docker                 Force Docker environment
-  --no-docker              Force local environment
-  --config PATH            Path to config file
-  -e, --env TEXT           Environment to run in
-  -s, --suite TEXT         Test suite to run
-  --keep-running           Keep services running after tests
+  -c, --category TEXT         Test category (unit, integration, api, e2e)
+  -a, --app TEXT              Specific app/module to test
+  -f, --file TEXT             Specific test file to run
+  -p, --parallel              Run tests in parallel
+  --coverage                  Collect coverage data
+  -x, --failfast              Stop on first failure
+  -v, --verbose               Verbose output
+  --json                      Output results as JSON
+  -t, --template TEXT         Output template name
+  --env-mode [auto|docker|local]  Execution environment (default: auto)
+  --config PATH               Path to config file
+  -e, --env TEXT              Environment to run in
+  -s, --suite TEXT            Test suite to run
+  --keep-running              Keep services running after tests
 ```
 
 ### Exit Codes

@@ -30,16 +30,6 @@ Never use result.py classes in new code. Always use evaluation.py.
 =====================================================================
 """
 
-from .config import (
-    CategoryConfig,
-    EnvironmentConfig,
-    JestConfig,
-    PytestConfig,
-    ReportingConfig,
-    SystemEvalConfig,
-    find_config_file,
-    load_config,
-)
 from .criteria import (
     COVERAGE_50,
     COVERAGE_70,
@@ -82,15 +72,6 @@ from .evaluation import (
 )
 
 __all__ = [
-    # Config
-    "CategoryConfig",
-    "EnvironmentConfig",
-    "JestConfig",
-    "PytestConfig",
-    "ReportingConfig",
-    "SystemEvalConfig",
-    "find_config_file",
-    "load_config",
     # Criteria
     "MetricCriterion",
     "TESTS_PASSED",

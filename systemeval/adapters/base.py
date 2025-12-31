@@ -1,28 +1,4 @@
-"""
-Base adapter abstract class for test framework integration.
-
-SCHEMA ARCHITECTURE:
-====================
-
-TestResult (this file):
-- INTERMEDIATE format returned by adapter.execute()
-- Simple data class with test counts (passed, failed, errors, skipped)
-- Has .to_evaluation() method for conversion to final schema
-- Think of it as: "raw test execution data"
-
-EvaluationResult (evaluation.py):
-- FINAL output schema with full metadata, sessions, verdicts
-- This is what gets serialized to JSON
-- Think of it as: "complete evaluation report with context"
-
-FLOW:
-1. Adapter discovers tests → List[TestItem]
-2. Adapter executes tests → TestResult (this class)
-3. TestResult.to_evaluation() → EvaluationResult (final output)
-4. EvaluationResult.to_json() → JSON output
-
-Never skip step 3. Always convert TestResult to EvaluationResult before output.
-"""
+"""Base adapter abstract class for test framework integration."""
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -87,15 +63,7 @@ class TestResult:
 
     @property
     def verdict(self) -> Verdict:
-        """Determine objective verdict based on results.
-
-        Verdict Logic (cascade, non-negotiable):
-        - exit_code == 2 → ERROR (collection/config error)
-        - total == 0 → ERROR (no tests collected)
-        - parsed_from == "fallback" AND exit_code != 0 → ERROR (unrecognized output with failure)
-        - failed > 0 or errors > 0 → FAIL
-        - All tests pass → PASS
-        """
+        """Determine objective verdict based on results."""
         if self.exit_code == 2:
             return Verdict.ERROR
         if self.total == 0:
@@ -118,7 +86,7 @@ class TestResult:
             "failed": self.failed,
             "errors": self.errors,
             "skipped": self.skipped,
-            "duration": round(self.duration, 3),
+            "duration_seconds": round(self.duration, 3),
             "timestamp": self.timestamp,
             "category": self.category,
             "coverage_percent": self.coverage_percent,
@@ -134,12 +102,7 @@ class TestResult:
         adapter_type: str = "unknown",
         project_name: Optional[str] = None,
     ) -> EvaluationResult:
-        """
-        Convert TestResult to unified EvaluationResult.
-
-        This provides backward compatibility while migrating to the
-        unified schema.
-        """
+        """Convert TestResult to unified EvaluationResult."""
         result = create_evaluation(
             adapter_type=adapter_type,
             category=self.category,
@@ -193,7 +156,7 @@ class TestResult:
                     "test_id": f.test_id,
                     "test_name": f.test_name,
                     "message": f.message,
-                    "duration": f.duration,
+                    "duration_seconds": f.duration,
                 }
                 for f in self.failures
             ]
@@ -223,16 +186,7 @@ class BaseAdapter(ABC):
         app: Optional[str] = None,
         file: Optional[str] = None,
     ) -> List[TestItem]:
-        """Discover tests matching criteria.
-
-        Args:
-            category: Test category/marker to filter by (e.g., 'unit', 'integration')
-            app: Application/module name to filter by
-            file: Specific test file path to filter by
-
-        Returns:
-            List of discovered test items
-        """
+        """Discover tests matching criteria."""
         pass
 
     @abstractmethod
@@ -245,35 +199,15 @@ class BaseAdapter(ABC):
         verbose: bool = False,
         timeout: Optional[int] = None,
     ) -> TestResult:
-        """Execute tests and return results.
-
-        Args:
-            tests: Specific test items to run (None = run all)
-            parallel: Enable parallel test execution
-            coverage: Enable coverage reporting
-            failfast: Stop on first failure
-            verbose: Verbose output
-            timeout: Timeout in seconds for entire test run
-
-        Returns:
-            Test execution results
-        """
+        """Execute tests and return results."""
         pass
 
     @abstractmethod
     def get_available_markers(self) -> List[str]:
-        """Return available test markers/categories.
-
-        Returns:
-            List of marker names (e.g., ['unit', 'integration', 'api'])
-        """
+        """Return available test markers/categories."""
         pass
 
     @abstractmethod
     def validate_environment(self) -> bool:
-        """Validate that the test framework is properly configured.
-
-        Returns:
-            True if environment is valid, False otherwise
-        """
+        """Validate that the test framework is properly configured."""
         pass

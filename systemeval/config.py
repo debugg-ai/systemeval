@@ -1,5 +1,57 @@
 """
 Configuration loading and validation for systemeval.
+
+Architecture Rationale:
+----------------------
+This module defines 9 Pydantic models to support complex multi-environment test orchestration:
+
+1. TestCategory - Test categorization (unit, integration, api, browser, pipeline)
+   - Supports pytest markers, path filters, dependency requirements
+   - Used by adapters to filter and validate test execution
+
+2. HealthCheckConfig - Docker health check configuration
+   - Required for docker-compose environments to verify service readiness
+   - Configurable endpoints, ports, timeouts, retries
+
+3. EnvironmentConfig (base) - Shared environment fields
+   - type: Literal union for environment type discrimination
+   - test_command, working_dir, default flag
+   - Base class for 3 concrete environment types
+
+4-6. Environment Subclasses (StandaloneEnvConfig, DockerComposeEnvConfig, CompositeEnvConfig)
+   - Each has distinct lifecycle requirements and configuration
+   - StandaloneEnvConfig: Process-based (command, port, env vars, ready pattern)
+   - DockerComposeEnvConfig: Docker orchestration (compose file, services, health checks)
+   - CompositeEnvConfig: Multi-environment composition (dependency graph)
+   - Cannot be merged - each type has unique validation and runtime behavior
+
+7. PytestConfig - Pytest adapter configuration
+   - config_file, base_path, default_category
+   - Adapter-specific settings isolated from pipeline config
+
+8. PipelineConfig - Pipeline adapter configuration
+   - projects, timeout, poll_interval, sync_mode, skip_build
+   - Full build→deploy→health→crawl→E2E evaluation settings
+
+9. SystemEvalConfig - Root configuration
+   - Aggregates all sub-configs with validation
+   - Validates adapter names against registry
+   - Validates composite environment dependency graphs
+   - Converts YAML to strongly-typed config with defaults
+
+Why Pydantic over TypedDict:
+- Runtime validation of YAML input (catches config errors early)
+- Discriminated unions for environment types (type-safe polymorphism)
+- Field validators for paths, adapter names, dependency graphs
+- Default values and optional fields with clear semantics
+- Model inheritance for environment types (DRY principle)
+
+This complexity is justified by production usage in sentinal/systemeval.yaml:
+- 6 test categories (unit, integration, api, browser, pipeline, external)
+- 3 environments (backend, browser, full-stack) with different Docker configs
+- 2 adapters (pytest, pipeline) with distinct configuration needs
+- Health checks with retries, timeouts, custom endpoints
+- Composite environments with dependency resolution
 """
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union

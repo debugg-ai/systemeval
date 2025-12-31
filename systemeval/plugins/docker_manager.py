@@ -3,7 +3,6 @@ Docker Resource Manager for orchestrating Docker Compose environments.
 
 Provides build, up, down, exec, logs, and health check functionality.
 """
-import logging
 import os
 import signal
 import subprocess
@@ -14,7 +13,9 @@ from typing import Callable, List, Optional
 from urllib.error import URLError
 from urllib.request import urlopen
 
-logger = logging.getLogger(__name__)
+from systemeval.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -174,6 +175,7 @@ class DockerResourceManager:
             pull: Pull base images before building
             stream: Stream build output
         """
+        logger.debug(f"Building Docker images (services: {services or 'all'}, no_cache: {no_cache})")
         args = ["build"]
         if no_cache:
             args.append("--no-cache")
@@ -183,6 +185,11 @@ class DockerResourceManager:
             args.extend(services)
 
         result = self._run(*args, stream=stream)
+
+        if result.success:
+            logger.debug(f"Docker build completed successfully in {result.duration:.1f}s")
+        else:
+            logger.error(f"Docker build failed: {result.stderr[:200]}")
 
         return BuildResult(
             success=result.success,
@@ -210,6 +217,7 @@ class DockerResourceManager:
             wait: Wait for services to be healthy (Docker native)
             timeout: Timeout for wait
         """
+        logger.debug(f"Starting Docker containers (services: {services or 'all'}, detach: {detach})")
         args = ["up"]
         if detach:
             args.append("-d")
@@ -222,7 +230,14 @@ class DockerResourceManager:
         if services:
             args.extend(services)
 
-        return self._run(*args, stream=not detach)
+        result = self._run(*args, stream=not detach)
+
+        if result.success:
+            logger.debug(f"Docker containers started successfully in {result.duration:.1f}s")
+        else:
+            logger.error(f"Failed to start Docker containers: {result.stderr[:200]}")
+
+        return result
 
     def down(
         self,
@@ -238,13 +253,25 @@ class DockerResourceManager:
             remove_orphans: Remove orphaned containers
             timeout: Timeout for container stop
         """
+        if volumes:
+            logger.warning("Stopping Docker containers WITH volume removal - data will be lost!")
+        else:
+            logger.debug(f"Stopping Docker containers (timeout: {timeout}s)")
+
         args = ["down", "-t", str(timeout)]
         if volumes:
             args.append("-v")
         if remove_orphans:
             args.append("--remove-orphans")
 
-        return self._run(*args)
+        result = self._run(*args)
+
+        if result.success:
+            logger.debug(f"Docker containers stopped successfully in {result.duration:.1f}s")
+        else:
+            logger.error(f"Failed to stop Docker containers: {result.stderr[:200]}")
+
+        return result
 
     def exec(
         self,
@@ -354,6 +381,7 @@ class DockerResourceManager:
         Returns:
             True if healthy within timeout, False otherwise
         """
+        logger.debug(f"Waiting for service '{config.service}' to be healthy at {config.endpoint}")
         start = time.time()
         interval = config.initial_delay
         attempts = 0
@@ -363,18 +391,21 @@ class DockerResourceManager:
 
         while (time.time() - start) < config.timeout:
             if self._shutdown_requested:
+                logger.warning("Health check cancelled due to shutdown request")
                 return False
 
             attempts += 1
             try:
                 response = urlopen(url, timeout=5)
                 if response.status == 200:
+                    logger.debug(f"Service '{config.service}' is healthy after {attempts} attempts ({time.time() - start:.1f}s)")
                     if on_progress:
                         on_progress(f"Service {config.service} is healthy")
                     return True
             except URLError:
                 pass
             except Exception as e:
+                logger.debug(f"Health check error (attempt {attempts}): {e}")
                 if on_progress:
                     on_progress(f"Health check error: {e}")
 
@@ -388,6 +419,7 @@ class DockerResourceManager:
             time.sleep(interval)
             interval = min(interval * 1.5, config.max_interval)
 
+        logger.warning(f"Service '{config.service}' did not become healthy within {config.timeout}s timeout")
         return False
 
     def install_signal_handlers(self, cleanup_callback: Callable[[], None]) -> None:

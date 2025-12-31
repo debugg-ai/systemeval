@@ -1,29 +1,4 @@
-"""
-Unified EvaluationResult schema for SystemEval.
-
-This is the singular contract that ALL evaluations MUST conform to.
-
-Enforces:
-1. Singular entrypoint - One schema for all evaluation types
-2. Non-fungible - Unique IDs
-3. Objective - Binary verdict, deterministic
-4. Repeatable - Same inputs = same verdict
-5. Structured output - JSON Schema compliant, AI-parseable
-
-Usage:
-    result = create_evaluation(
-        adapter_type="pipeline",
-        category="integration",
-        project_name="debuggai"
-    )
-
-    result.add_session(SessionResult(...))
-    result.finalize()  # Computes duration
-
-    # Output
-    result.to_json()
-    result.to_dict()
-"""
+"""Unified EvaluationResult schema for SystemEval."""
 import json
 import os
 import socket
@@ -42,28 +17,14 @@ SCHEMA_VERSION = "1.0.0"
 
 
 class Verdict(str, Enum):
-    """
-    Binary verdict - deterministic, no subjective interpretation.
-
-    CASCADE LOGIC:
-    - ANY metric fails → session FAILS
-    - ANY session fails → evaluation FAILS
-    - System/config error → ERROR
-    """
+    """Binary verdict - deterministic, no subjective interpretation."""
     PASS = "PASS"
     FAIL = "FAIL"
     ERROR = "ERROR"
 
 
 class Severity(str, Enum):
-    """
-    Severity level for metric failures.
-
-    Used to categorize the importance of a failed metric:
-    - ERROR: Critical failure that must be addressed
-    - WARNING: Non-critical issue that should be reviewed
-    - INFO: Informational metric, always passes
-    """
+    """Severity level for metric failures."""
     ERROR = "error"
     WARNING = "warning"
     INFO = "info"
@@ -71,20 +32,13 @@ class Severity(str, Enum):
 
 @dataclass
 class MetricResult:
-    """
-    Result of evaluating a single metric/criterion.
-
-    A metric is a single measurable value with a pass/fail condition.
-    Examples: build_status, test_count, error_rate, coverage_percent
-    """
-    name: str  # Metric identifier
-    value: Any  # Actual value measured
-    expected: Any  # Expected value or condition description
-    passed: bool  # True if metric passed its condition
-
-    # Enrichment
-    message: Optional[str] = None  # Human-readable description
-    severity: Union[str, Severity] = Severity.ERROR  # error, warning, info
+    """Result of evaluating a single metric/criterion."""
+    name: str
+    value: Any
+    expected: Any
+    passed: bool
+    message: Optional[str] = None
+    severity: Union[str, Severity] = Severity.ERROR
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -118,14 +72,7 @@ class MetricResult:
 
 @dataclass
 class SessionResult:
-    """
-    Result for a single evaluation session.
-
-    A session is a logical unit of evaluation (e.g., one test file,
-    one project, one E2E scenario).
-
-    CASCADE RULE: If ANY metric fails, the session FAILS.
-    """
+    """Result for a single evaluation session."""
     session_id: str  # Unique identifier
     session_name: str  # Human-readable name
 
@@ -183,14 +130,7 @@ class SessionResult:
 
 @dataclass
 class EvaluationMetadata:
-    """
-    Non-fungible metadata for unique identification.
-
-    Every evaluation is uniquely identifiable via:
-    - evaluation_id: UUID for this specific run
-    - timestamp_utc: When the evaluation was performed
-    - environment: Git commit, branch, host, etc.
-    """
+    """Non-fungible metadata for unique identification."""
     # Unique identifiers
     evaluation_id: str  # UUID4 - globally unique
 
@@ -228,20 +168,7 @@ class EvaluationMetadata:
 
 @dataclass
 class EvaluationResult:
-    """
-    UNIFIED result schema for ALL evaluations.
-
-    This is the singular contract that all adapters MUST conform to.
-
-    Principles:
-    1. Singular entrypoint - One schema for all evaluation types
-    2. Non-fungible - Unique IDs
-    3. Objective - Binary verdict, deterministic
-    4. Repeatable - Same inputs = same verdict
-    5. Structured output - JSON Schema compliant, AI-parseable
-
-    CASCADE RULE: If ANY session fails, the evaluation FAILS.
-    """
+    """Unified result schema for all evaluations."""
     metadata: EvaluationMetadata
     sessions: List[SessionResult] = field(default_factory=list)
 
@@ -255,15 +182,7 @@ class EvaluationResult:
 
     @property
     def verdict(self) -> Verdict:
-        """
-        Compute verdict from sessions.
-
-        CASCADE LOGIC:
-        - No sessions → ERROR
-        - ANY session ERROR → ERROR
-        - ANY session FAIL → FAIL
-        - ALL sessions PASS → PASS
-        """
+        """Compute verdict from sessions."""
         if not self.sessions:
             return Verdict.ERROR
         if any(s.verdict == Verdict.ERROR for s in self.sessions):
@@ -317,12 +236,7 @@ class EvaluationResult:
         self.warnings.append(message)
 
     def finalize(self) -> None:
-        """
-        Finalize the evaluation.
-
-        Computes:
-        - Total duration
-        """
+        """Finalize the evaluation and compute duration."""
         if self._finalized:
             return
 
@@ -381,38 +295,7 @@ def create_evaluation(
     command: Optional[str] = None,
     environment: Optional[Dict[str, str]] = None,
 ) -> EvaluationResult:
-    """
-    Factory function to create an EvaluationResult with proper metadata.
-
-    Automatically captures:
-    - Unique evaluation_id (UUID4)
-    - Timestamp with microseconds
-    - Environment context (git commit, branch, host, Python version)
-
-    Usage:
-        result = create_evaluation(
-            adapter_type="pipeline",
-            category="integration",
-            project_name="debuggai"
-        )
-
-        # Add sessions
-        session = SessionResult(
-            session_id=str(uuid.uuid4()),
-            session_name="unit-tests",
-        )
-        session.metrics.append(MetricResult(
-            name="tests_passed",
-            value=150,
-            expected=">0",
-            passed=True,
-        ))
-        result.add_session(session)
-
-        # Finalize and output
-        result.finalize()
-        print(result.to_json())
-    """
+    """Factory function to create an EvaluationResult with proper metadata."""
     # Capture environment context
     env_context = dict(environment or {})
 
@@ -463,14 +346,7 @@ def create_session(
     name: str,
     session_id: Optional[str] = None,
 ) -> SessionResult:
-    """
-    Factory function to create a SessionResult.
-
-    Usage:
-        session = create_session("unit-tests")
-        session.metrics.append(MetricResult(...))
-        result.add_session(session)
-    """
+    """Factory function to create a SessionResult."""
     return SessionResult(
         session_id=session_id or str(uuid.uuid4()),
         session_name=name,
@@ -487,39 +363,7 @@ def metric(
     severity: Union[str, Severity] = Severity.ERROR,
     **metadata: Any,
 ) -> MetricResult:
-    """
-    Factory function to create a MetricResult.
-
-    Args:
-        name: Metric identifier
-        value: Actual measured value
-        expected: Expected value or condition description
-        condition: Whether the metric passed its condition
-        message: Human-readable description (optional)
-        severity: Metric severity level (error, warning, info). Defaults to error.
-        **metadata: Additional metadata key-value pairs
-
-    Usage:
-        m = metric(
-            name="build_status",
-            value="succeeded",
-            expected="succeeded",
-            condition=build_status == "succeeded",
-            message="Build completed successfully"
-        )
-
-        # With severity enum
-        m = metric(
-            name="coverage",
-            value=85.5,
-            expected=">=80",
-            condition=True,
-            severity=Severity.INFO
-        )
-
-        # Severity is validated - this will raise ValueError:
-        # metric("test", 1, "1", True, severity="critical")
-    """
+    """Factory function to create a MetricResult."""
     return MetricResult(
         name=name,
         value=value,

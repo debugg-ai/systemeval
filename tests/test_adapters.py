@@ -68,6 +68,14 @@ class TestTestResultToDict:
         assert "timestamp" in d
         assert d["timestamp"].endswith("Z")
 
+    def test_to_dict_uses_duration_seconds(self, passing_test_result):
+        """Test that to_dict uses duration_seconds (not duration) for consistency."""
+        d = passing_test_result.to_dict()
+        assert "duration_seconds" in d
+        assert d["duration_seconds"] == 5.5
+        # The internal attribute is still .duration, but serialized key is duration_seconds
+        assert passing_test_result.duration == 5.5
+
 
 class TestTestResultToEvaluation:
     """Tests for TestResult.to_evaluation() conversion."""

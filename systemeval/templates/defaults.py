@@ -53,7 +53,7 @@ All tests passed successfully.
 ### {{ failure.test_name }}
 
 - **Test ID**: `{{ failure.test_id }}`
-- **Duration**: {{ failure.duration | round(3) }}s
+- **Duration**: {{ failure.duration_seconds | round(3) }}s
 
 ```
 {{ failure.message | truncate(500) }}
@@ -91,7 +91,7 @@ FAILURES ({{ failures | length }})
 --------------------------------------------------------------------------------
 {% for failure in failures %}
 [{{ loop.index }}] {{ failure.test_id }}
-    Duration: {{ failure.duration | round(3) }}s
+    Duration: {{ failure.duration_seconds | round(3) }}s
     Message:  {{ failure.message | truncate(200) | replace('\n', ' ') }}
 {% endfor %}
 --------------------------------------------------------------------------------
@@ -120,7 +120,7 @@ RESULT: {{ verdict }}
 <testsuites name="{{ category }}" tests="{{ total }}" failures="{{ failed }}" errors="{{ errors }}" skipped="{{ skipped }}" time="{{ duration | round(3) }}" timestamp="{{ timestamp }}">
   <testsuite name="{{ category }}" tests="{{ total }}" failures="{{ failed }}" errors="{{ errors }}" skipped="{{ skipped }}" time="{{ duration | round(3) }}">
 {% for failure in failures %}
-    <testcase name="{{ failure.test_name }}" classname="{{ failure.test_id | replace('::', '.') }}" time="{{ failure.duration | round(3) }}">
+    <testcase name="{{ failure.test_name }}" classname="{{ failure.test_id | replace('::', '.') }}" time="{{ failure.duration_seconds | round(3) }}">
       <failure message="{{ failure.message | e | truncate(200) }}">{{ failure.traceback | e if failure.traceback else failure.message | e }}</failure>
     </testcase>
 {% endfor %}
@@ -368,7 +368,7 @@ FAILURES ({{ failures | length }})
 --------------------------------------------------------------------------------
 {% for failure in failures %}
 [{{ loop.index }}] {{ failure.test_id }}
-    Duration: {{ failure.duration | round(3) }}s
+    Duration: {{ failure.duration_seconds | round(3) }}s
     Message:  {{ failure.message | truncate(200) | replace('\n', ' ') }}
 {% endfor %}
 --------------------------------------------------------------------------------

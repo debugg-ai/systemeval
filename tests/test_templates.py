@@ -60,7 +60,7 @@ def failing_context():
                 "test_name": "test_one",
                 "message": "AssertionError: expected 1, got 2",
                 "traceback": "Traceback...\nAssertionError: expected 1, got 2",
-                "duration": 0.5,
+                "duration_seconds": 0.5,
                 "metadata": {},
             },
             {
@@ -68,7 +68,7 @@ def failing_context():
                 "test_name": "test_two",
                 "message": "ValueError: invalid input",
                 "traceback": "Traceback...\nValueError: invalid input",
-                "duration": 0.3,
+                "duration_seconds": 0.3,
                 "metadata": {},
             },
         ],

@@ -15,6 +15,9 @@ from systemeval.plugins.docker_manager import (
     DockerResourceManager,
     HealthCheckConfig,
 )
+from systemeval.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class DockerComposeEnvironment(Environment):
@@ -60,6 +63,7 @@ class DockerComposeEnvironment(Environment):
 
     def setup(self) -> SetupResult:
         """Build and start Docker containers."""
+        logger.debug(f"Setting up Docker Compose environment: {self.name}")
         total_start = time.time()
         details: Dict[str, Any] = {}
 
@@ -68,6 +72,7 @@ class DockerComposeEnvironment(Environment):
 
         # Build phase
         if not self.skip_build:
+            logger.debug("Building Docker images...")
             build_start = time.time()
             build_result = self.docker.build(
                 services=self.services if self.services else None,
@@ -80,6 +85,7 @@ class DockerComposeEnvironment(Environment):
             }
 
             if not build_result.success:
+                logger.error(f"Docker build failed: {build_result.error}")
                 return SetupResult(
                     success=False,
                     message=f"Build failed: {build_result.error}",
@@ -88,6 +94,7 @@ class DockerComposeEnvironment(Environment):
                 )
 
         # Start containers
+        logger.debug(f"Starting Docker containers (services: {self.services or 'all'})...")
         startup_start = time.time()
         up_result = self.docker.up(
             services=self.services if self.services else None,
@@ -101,6 +108,7 @@ class DockerComposeEnvironment(Environment):
         }
 
         if not up_result.success:
+            logger.error(f"Failed to start containers: {up_result.stderr}")
             return SetupResult(
                 success=False,
                 message=f"Failed to start containers: {up_result.stderr}",
@@ -109,6 +117,7 @@ class DockerComposeEnvironment(Environment):
             )
 
         self._is_up = True
+        logger.debug(f"Docker containers started successfully in {time.time() - total_start:.1f}s")
 
         return SetupResult(
             success=True,
@@ -246,11 +255,13 @@ class DockerComposeEnvironment(Environment):
 
     def teardown(self, keep_running: bool = False) -> None:
         """Stop and remove containers."""
+        logger.debug(f"Tearing down Docker Compose environment (keep_running={keep_running})")
         start = time.time()
 
         if self._is_up and not keep_running:
             self.docker.down()
             self._is_up = False
+            logger.debug(f"Docker containers stopped in {time.time() - start:.1f}s")
 
         self.docker.restore_signal_handlers()
         self.timings.cleanup = time.time() - start

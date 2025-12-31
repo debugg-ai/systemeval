@@ -134,6 +134,24 @@ class TemplateRenderer:
         """
         enriched = dict(context)
 
+        # Provide 'duration' alias for templates (canonical key is duration_seconds)
+        if "duration_seconds" in enriched and "duration" not in enriched:
+            enriched["duration"] = enriched["duration_seconds"]
+
+        # Ensure failures have both duration and duration_seconds for compatibility
+        if "failures" in enriched:
+            new_failures = []
+            for f in enriched["failures"]:
+                enriched_f = dict(f)
+                # Add duration_seconds if missing but duration exists
+                if "duration_seconds" not in enriched_f and "duration" in enriched_f:
+                    enriched_f["duration_seconds"] = enriched_f["duration"]
+                # Add duration if missing but duration_seconds exists
+                elif "duration" not in enriched_f and "duration_seconds" in enriched_f:
+                    enriched_f["duration"] = enriched_f["duration_seconds"]
+                new_failures.append(enriched_f)
+            enriched["failures"] = new_failures
+
         # Add verdict emoji
         verdict = context.get("verdict", "ERROR")
         emoji_map = {
@@ -217,6 +235,10 @@ def render_results(
     else:
         raise TypeError(f"Expected TestResult or dict, got {type(results)}")
 
+    # Provide 'duration' alias for templates (canonical key is duration_seconds)
+    if "duration_seconds" in context and "duration" not in context:
+        context["duration"] = context["duration_seconds"]
+
     # Add failures list if available
     if hasattr(results, "failures"):
         context["failures"] = [
@@ -225,7 +247,8 @@ def render_results(
                 "test_name": f.test_name,
                 "message": f.message,
                 "traceback": f.traceback,
-                "duration": f.duration,
+                "duration_seconds": f.duration,
+                "duration": f.duration,  # Alias for templates
                 "metadata": getattr(f, "metadata", {}),
             }
             for f in results.failures

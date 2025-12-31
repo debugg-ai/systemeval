@@ -139,8 +139,12 @@ def main() -> None:
 @click.option('--verbose', '-v', is_flag=True, help='Verbose output')
 @click.option('--json', 'json_output', is_flag=True, help='Output results as JSON')
 @click.option('--template', '-t', help='Output template (summary, markdown, ci, github, junit, slack, table, pipeline_*)')
-@click.option('--docker', is_flag=True, help='Force Docker environment')
-@click.option('--no-docker', is_flag=True, help='Force local environment')
+@click.option(
+    '--env-mode',
+    type=click.Choice(['auto', 'docker', 'local'], case_sensitive=False),
+    default='auto',
+    help='Execution environment: auto (detect), docker (force Docker), local (force local host)'
+)
 @click.option('--config', type=click.Path(exists=True), help='Path to config file')
 # Environment orchestration options
 @click.option('--env', '-e', 'env_name', help='Environment to run tests in (backend, frontend, full-stack)')
@@ -162,8 +166,7 @@ def test(
     verbose: bool,
     json_output: bool,
     template: Optional[str],
-    docker: bool,
-    no_docker: bool,
+    env_mode: str,
     config: Optional[str],
     # Environment options
     env_name: Optional[str],
@@ -191,16 +194,12 @@ def test(
             console.print(f"[red]Error loading config:[/red] {e}")
             sys.exit(2)
 
-        # Determine environment
-        if docker and no_docker:
-            console.print("[red]Error:[/red] Cannot specify both --docker and --no-docker")
-            sys.exit(2)
-
-        if docker:
+        # Determine execution environment based on env_mode
+        if env_mode == 'docker':
             environment = "docker"
-        elif no_docker:
+        elif env_mode == 'local':
             environment = "local"
-        else:
+        else:  # 'auto' (default)
             environment = get_environment_type()
 
         if verbose:
