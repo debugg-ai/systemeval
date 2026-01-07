@@ -5,6 +5,7 @@ Used for Next.js dev servers, direct pytest runs, etc.
 Supports flexible test execution including custom scripts.
 """
 import logging
+import os
 import re
 import shlex
 import subprocess
@@ -14,9 +15,10 @@ from typing import Any, Dict, List, Optional, Union
 
 logger = logging.getLogger(__name__)
 
-from systemeval.adapters import TestResult
+from systemeval.types import TestResult
 from systemeval.environments.base import Environment, EnvironmentType, SetupResult
 from systemeval.environments.executor import TestExecutor
+from systemeval.utils.commands import build_test_command
 
 
 class StandaloneEnvironment(Environment):
@@ -55,7 +57,7 @@ class StandaloneEnvironment(Environment):
 
         try:
             # Build environment
-            env = dict(__import__("os").environ)
+            env = dict(os.environ)
             env.update(self.env_vars)
 
             # Parse command
@@ -195,39 +197,7 @@ class StandaloneEnvironment(Environment):
         verbose: bool,
     ) -> Union[str, List[str]]:
         """Build the test command with optional filters."""
-        # Handle list of commands
-        if isinstance(self.test_command, list):
-            return self.test_command
-
-        # Handle single command string
-        cmd = self.test_command
-
-        # Check if it's a script
-        if cmd.startswith("./") or cmd.startswith("/"):
-            if suite:
-                cmd = f"SUITE={suite} {cmd}"
-            if category:
-                cmd = f"CATEGORY={category} {cmd}"
-            if verbose:
-                cmd = f"{cmd} -v"
-            return cmd
-
-        # For standard test frameworks, add flags
-        if "pytest" in cmd:
-            if suite:
-                cmd = f"{cmd} -m {suite}"
-            if category:
-                cmd = f"{cmd} -m {category}"
-            if verbose and "-v" not in cmd:
-                cmd = f"{cmd} -v"
-        elif "npm test" in cmd or "jest" in cmd:
-            if suite:
-                cmd = f"{cmd} --testPathPattern={suite}"
-        elif "playwright" in cmd:
-            if suite:
-                cmd = f"{cmd} --grep {suite}"
-
-        return cmd
+        return build_test_command(self.test_command, suite, category, verbose)
 
     def teardown(self, keep_running: bool = False) -> None:
         """Stop the standalone process."""

@@ -3,7 +3,7 @@
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 try:
     import pytest
@@ -16,7 +16,7 @@ try:
 except ImportError:
     PYTEST_AVAILABLE = False
 
-from .base import BaseAdapter, TestFailure, TestItem, TestResult
+from .base import AdapterConfig, BaseAdapter, TestFailure, TestItem, TestResult
 from systemeval.utils.django import detect_django_settings
 from systemeval.utils.logging import get_logger
 
@@ -109,19 +109,39 @@ class PytestResultPlugin:
 
 
 class PytestAdapter(BaseAdapter):
-    """Pytest framework adapter."""
+    """Pytest framework adapter.
 
-    def __init__(self, project_root: str) -> None:
+    Supports initialization with either AdapterConfig or project_root string.
+
+    Example:
+        # Using AdapterConfig
+        config = AdapterConfig(
+            project_root="/path/to/project",
+            test_directory="tests",
+            markers=["unit"],
+            parallel=True,
+        )
+        adapter = PytestAdapter(config)
+
+        # Using project_root string (backward compatible)
+        adapter = PytestAdapter("/path/to/project")
+    """
+
+    def __init__(
+        self,
+        config_or_project_root: Union[AdapterConfig, str, Path],
+    ) -> None:
         """Initialize pytest adapter.
 
         Args:
-            project_root: Absolute path to the project root directory
+            config_or_project_root: Either an AdapterConfig object or
+                                    an absolute path to the project root directory.
         """
         if not PYTEST_AVAILABLE:
             raise ImportError(
                 "pytest is not installed. Install with: pip install systemeval[pytest]"
             )
-        super().__init__(project_root)
+        super().__init__(config_or_project_root)
         self._detect_django()
 
     def _detect_django(self) -> None:

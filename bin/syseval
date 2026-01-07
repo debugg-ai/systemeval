@@ -1,18 +1,26 @@
 #!/bin/bash
-# syseval - Terminal wrapper for systemeval pipeline evaluation
-#
-# This script allows running systemeval from outside Docker by wrapping
-# the docker-compose exec command. Docker containers must be running.
+# =============================================================================
+# syseval - Terminal wrapper for systemeval CLI
+# =============================================================================
+# This script provides convenient access to systemeval from anywhere in the
+# project, handling Docker context and configuration discovery automatically.
 #
 # Usage:
-#   syseval test --projects crochet-patterns --template pipeline_diagnostic
-#   syseval list templates
-#   syseval list adapters
+#   syseval test                                    # Run default tests
+#   syseval test --category unit                    # Run unit tests
+#   syseval test --projects crochet-patterns        # Pipeline evaluation
+#   syseval test --env backend                      # Run in Docker env
+#   syseval test --template pipeline_diagnostic    # Custom output format
+#   syseval list categories                         # List test categories
+#   syseval list environments                       # List environments
+#   syseval list templates                          # List output templates
+#   syseval list adapters                           # List adapters
 #
-# Environment:
-#   SYSEVAL_COMPOSE_FILE - Path to docker-compose file (default: local.yml)
-#   SYSEVAL_SERVICE - Docker service name (default: django)
-#   SYSEVAL_WORKDIR - Working directory in container (default: /app)
+# Environment Variables:
+#   SYSEVAL_COMPOSE_FILE - Docker compose file (default: local.yml)
+#   SYSEVAL_SERVICE      - Docker service name (default: django)
+#   SYSEVAL_WORKDIR      - Working directory in container (default: /app)
+#   SYSEVAL_VERBOSE      - Enable verbose output (default: false)
 
 set -e
 
@@ -20,12 +28,15 @@ set -e
 COMPOSE_FILE="${SYSEVAL_COMPOSE_FILE:-local.yml}"
 SERVICE="${SYSEVAL_SERVICE:-django}"
 WORKDIR="${SYSEVAL_WORKDIR:-/app}"
+VERBOSE="${SYSEVAL_VERBOSE:-false}"
 
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+DIM='\033[2m'
 NC='\033[0m' # No Color
 
 # Find the sentinal directory (where docker-compose files are)
@@ -74,57 +85,76 @@ check_container() {
     fi
 }
 
-# Ensure systemeval config exists in container
-ensure_config() {
-    local sentinal_dir="$1"
+# Print usage help
+print_help() {
+    cat << EOF
+${CYAN}syseval - SystemEval CLI Wrapper${NC}
 
-    cd "$sentinal_dir"
+${YELLOW}USAGE:${NC}
+    syseval <command> [options]
 
-    # Check if config exists, if not create a default one
-    docker-compose -f "$COMPOSE_FILE" exec -T "$SERVICE" bash -c "
-        if [[ ! -f $WORKDIR/systemeval.yaml ]]; then
-            cat > $WORKDIR/systemeval.yaml << 'EOF'
-adapter: pipeline
-project_root: \".\"
-pipeline:
-  timeout: 300
-  poll_interval: 10
-  skip_build: false
+${YELLOW}COMMANDS:${NC}
+    test              Run tests (default command)
+    list <item>       List available items (categories, environments, templates, adapters)
+    init              Initialize systemeval.yaml
+    validate          Validate configuration
+    help              Show this help message
+
+${YELLOW}TEST OPTIONS:${NC}
+    --category, -c    Test category (unit, integration, api, browser, pipeline)
+    --app, -a         Specific app/module to test
+    --file, -f        Specific test file to run
+    --parallel, -p    Run tests in parallel
+    --coverage        Collect coverage data
+    --failfast, -x    Stop on first failure
+    --verbose, -v     Verbose output
+    --json            Output results as JSON
+    --template, -t    Output template (summary, markdown, ci, github, pipeline_*)
+
+${YELLOW}ENVIRONMENT OPTIONS:${NC}
+    --env, -e         Environment to run in (backend, browser, full-stack)
+    --suite, -s       Test suite to run
+    --keep-running    Keep containers running after tests
+
+${YELLOW}PIPELINE OPTIONS:${NC}
+    --projects        Project slugs to evaluate
+    --timeout         Max wait time per project (default: 600)
+    --poll-interval   Seconds between checks (default: 15)
+    --sync            Run webhooks synchronously
+    --skip-build      Skip build, use existing containers
+
+${YELLOW}EXAMPLES:${NC}
+    # Run unit tests
+    syseval test --category unit
+
+    # Run pipeline evaluation
+    syseval test --projects crochet-patterns --timeout 600
+
+    # Run with diagnostic output
+    syseval test --projects crochet-patterns --template pipeline_diagnostic
+
+    # Run in Docker environment
+    syseval test --env backend --category integration
+
+    # List available test categories
+    syseval list categories
+
+    # Get JSON output for CI/CD
+    syseval test --json > results.json
+
+${YELLOW}ENVIRONMENT VARIABLES:${NC}
+    SYSEVAL_COMPOSE_FILE    Docker compose file (default: local.yml)
+    SYSEVAL_SERVICE         Service name (default: django)
+    SYSEVAL_WORKDIR         Container working directory (default: /app)
+
 EOF
-        fi
-    " 2>/dev/null
 }
 
 # Main execution
 main() {
     # Check for help flag
-    if [[ "$1" == "-h" || "$1" == "--help" || -z "$1" ]]; then
-        echo "syseval - SystemEval Pipeline Evaluation Wrapper"
-        echo ""
-        echo "Usage: syseval <command> [options]"
-        echo ""
-        echo "Commands:"
-        echo "  test            Run pipeline evaluation"
-        echo "  list adapters   List available adapters"
-        echo "  list templates  List available output templates"
-        echo ""
-        echo "Test Options:"
-        echo "  --projects NAME     Project slug(s) to evaluate"
-        echo "  --template NAME     Output template (pipeline_diagnostic recommended)"
-        echo "  --timeout SECONDS   Max wait time per project"
-        echo "  --skip-build        Skip build, use existing containers"
-        echo "  --verbose           Verbose output"
-        echo "  --json              JSON output"
-        echo ""
-        echo "Examples:"
-        echo "  syseval test --projects crochet-patterns --template pipeline_diagnostic"
-        echo "  syseval test --projects crochet-patterns --skip-build --verbose"
-        echo "  syseval list templates"
-        echo ""
-        echo "Environment:"
-        echo "  SYSEVAL_COMPOSE_FILE  Docker compose file (default: local.yml)"
-        echo "  SYSEVAL_SERVICE       Service name (default: django)"
-        echo ""
+    if [[ "$1" == "-h" || "$1" == "--help" || "$1" == "help" || -z "$1" ]]; then
+        print_help
         exit 0
     fi
 
@@ -138,12 +168,10 @@ main() {
     fi
 
     check_container "$SENTINAL_DIR"
-    ensure_config "$SENTINAL_DIR"
 
     cd "$SENTINAL_DIR"
 
     # Build the systemeval command
-    # Pass all arguments through, but add config if not specified
     local args=("$@")
     local has_config=false
 
@@ -160,15 +188,23 @@ main() {
     fi
 
     # Execute in Docker
-    echo -e "${BLUE}Running systemeval in Docker...${NC}" >&2
-    docker-compose -f "$COMPOSE_FILE" exec -T "$SERVICE" bash -c "cd $WORKDIR && systemeval ${args[*]}" 2>&1 | grep -v "^INFO \|^WARNING pipeline_adapter\|^131 objects"
+    if [[ "$VERBOSE" == "true" ]]; then
+        echo -e "${BLUE}Running: systemeval ${args[*]}${NC}" >&2
+    fi
+
+    # Run systemeval with output filtering for cleaner results
+    docker-compose -f "$COMPOSE_FILE" exec -T "$SERVICE" bash -c "cd $WORKDIR && systemeval ${args[*]}" 2>&1 | \
+        grep -v "^INFO service\|^INFO apps\|^WARNING pipeline_adapter\|^131 objects"
 
     exit_code=${PIPESTATUS[0]}
 
+    # Print result banner
     if [[ $exit_code -eq 0 ]]; then
-        echo -e "${GREEN}Pipeline evaluation completed successfully${NC}" >&2
+        echo -e "\n${GREEN}✓ SystemEval completed successfully${NC}" >&2
+    elif [[ $exit_code -eq 1 ]]; then
+        echo -e "\n${RED}✗ Tests failed (exit code: 1)${NC}" >&2
     else
-        echo -e "${RED}Pipeline evaluation failed (exit code: $exit_code)${NC}" >&2
+        echo -e "\n${YELLOW}⚠ Error occurred (exit code: $exit_code)${NC}" >&2
     fi
 
     exit $exit_code

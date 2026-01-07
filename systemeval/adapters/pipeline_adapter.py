@@ -4,9 +4,10 @@ import hashlib
 import json
 import secrets
 import time
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
 
-from .base import BaseAdapter, TestFailure, TestItem, TestResult
+from .base import AdapterConfig, BaseAdapter, TestFailure, TestItem, TestResult
 from .repositories import DjangoProjectRepository, ProjectRepository
 from systemeval.core.evaluation import (
     EvaluationResult,
@@ -22,7 +23,28 @@ logger = get_logger(__name__)
 
 
 class PipelineAdapter(BaseAdapter):
-    """Adapter for Django pipeline evaluation."""
+    """Adapter for Django pipeline evaluation.
+
+    Supports initialization with either AdapterConfig or legacy parameters.
+
+    Example:
+        # Using AdapterConfig (preferred)
+        config = AdapterConfig(
+            project_root="/path/to/project",
+            timeout=600,
+            extra={
+                "repository": my_repository,
+                "retry_config": RetryConfig(...),
+            }
+        )
+        adapter = PipelineAdapter(config)
+
+        # Using legacy parameters (backward compatible)
+        adapter = PipelineAdapter(
+            project_root="/path/to/project",
+            repository=my_repository,
+        )
+    """
 
     # Hardcoded pipeline criteria (matches PIPELINE_CRITERIA from backend.core.testing)
     CRITERIA = {
@@ -35,16 +57,30 @@ class PipelineAdapter(BaseAdapter):
 
     def __init__(
         self,
-        project_root: str,
+        config_or_project_root: Union[AdapterConfig, str, Path],
         repository: Optional[ProjectRepository] = None,
         retry_config: Optional[RetryConfig] = None,
     ) -> None:
-        """Initialize pipeline adapter with repository and retry config."""
-        super().__init__(project_root)
-        self._repository = repository
+        """Initialize pipeline adapter with configuration.
+
+        Args:
+            config_or_project_root: Either an AdapterConfig object or project root path.
+            repository: Project repository (used only if project_root is passed).
+            retry_config: Retry configuration for transient failures.
+        """
+        super().__init__(config_or_project_root)
+
+        # Extract Pipeline-specific settings from config or use legacy params
+        if isinstance(config_or_project_root, AdapterConfig):
+            self._repository = self.config.get("repository")
+            retry_cfg = self.config.get("retry_config")
+        else:
+            # Legacy initialization
+            self._repository = repository
+            retry_cfg = retry_config
 
         # Setup retry configuration with sensible defaults
-        self._retry_config = retry_config or RetryConfig(
+        self._retry_config = retry_cfg or RetryConfig(
             max_attempts=3,
             initial_delay=1.0,
             max_delay=30.0,
@@ -282,12 +318,11 @@ class PipelineAdapter(BaseAdapter):
             duration=duration,
             failures=failures,
             exit_code=0 if errors == 0 and failed == 0 else 1,
+            # Store tests and metrics for detailed evaluation result generation
+            pipeline_tests=tests,
+            pipeline_metrics=results_by_project,
+            pipeline_adapter=self,
         )
-
-        # Store tests and metrics for detailed evaluation result generation
-        result._pipeline_tests = tests
-        result._pipeline_metrics = results_by_project
-        result._pipeline_adapter = self
 
         return result
 
@@ -435,6 +470,242 @@ class PipelineAdapter(BaseAdapter):
                 logger.error(f"  Webhook trigger failed after retries: {e}")
             return False
 
+    def _check_run_status(
+        self,
+        project,
+        session_start_dt,
+    ) -> Dict[str, Any]:
+        """Check pipeline run status via database queries.
+
+        Fetches current status of build, container, pipeline execution,
+        knowledge graph, and E2E runs for the given project.
+
+        Args:
+            project: Project instance (Django model)
+            session_start_dt: Session start datetime (timezone-aware)
+
+        Returns:
+            Dictionary of current metrics with internal tracking data
+        """
+        from django.db.models import Avg, Q
+        from backend.builds.models import Build
+        from backend.containers.models import Container
+        from backend.e2es.models import E2eRun, E2eRunMetrics
+        from backend.graphs.models import GraphPage, KnowledgeGraph
+        from backend.pipelines.models import PipelineExecution
+
+        current_metrics: Dict[str, Any] = {}
+
+        # Check pipeline execution - filter by session start time to avoid race conditions
+        pe = (
+            PipelineExecution.objects.filter(
+                project=project,
+                timestamp__gte=session_start_dt
+            )
+            .order_by("-timestamp")
+            .first()
+        )
+
+        if pe:
+            current_metrics["pipeline_status"] = pe.status
+            current_metrics["_pe_obj"] = pe
+            current_metrics["_pe_id"] = str(pe.id)
+        else:
+            current_metrics["_pe_obj"] = None
+            current_metrics["_pe_id"] = None
+
+        # Check build - filter by session start time
+        build = (
+            Build.objects.filter(
+                project=project,
+                timestamp__gte=session_start_dt
+            )
+            .order_by("-timestamp")
+            .first()
+        )
+        if build:
+            current_metrics["build_status"] = build.status
+            current_metrics["_build_id"] = str(build.id)
+            if build.completed_at and build.timestamp:
+                current_metrics["build_duration_seconds"] = (
+                    build.completed_at - build.timestamp
+                ).total_seconds()
+
+        # Check container - filter by session start time
+        container = (
+            Container.objects.filter(
+                project=project,
+                timestamp__gte=session_start_dt
+            )
+            .order_by("-timestamp")
+            .first()
+        )
+        if container:
+            current_metrics["container_healthy"] = container.is_healthy
+            current_metrics["health_checks_passed"] = container.health_checks_passed
+            current_metrics["_container_id"] = str(container.id)
+
+        # Check knowledge graph - use the one from the latest container's environment if available
+        # This prevents race conditions where multiple executions might share a KG
+        if container and hasattr(container, 'environment'):
+            kg = KnowledgeGraph.objects.filter(environment=container.environment).first()
+        else:
+            kg = KnowledgeGraph.objects.filter(environment__project=project).first()
+
+        if kg:
+            current_metrics["kg_exists"] = True
+            current_metrics["kg_pages"] = GraphPage.objects.filter(graph=kg).count()
+            current_metrics["_kg_id"] = str(kg.id)
+        else:
+            current_metrics["kg_exists"] = False
+            current_metrics["kg_pages"] = 0
+            current_metrics["_kg_id"] = None
+
+        # Check E2E metrics - ONLY count runs from this evaluation session
+        # Use pipeline execution correlation when available for stronger guarantees
+        pe = current_metrics.get("_pe_obj")
+        if pe:
+            # Include runs tied to this specific pipeline execution OR created after session start
+            # The pipeline_execution FK is the strongest correlation
+            session_runs = E2eRun.objects.filter(
+                Q(pipeline_execution=pe) | Q(project=project, timestamp__gte=session_start_dt)
+            ).distinct()
+        else:
+            # Fallback to timestamp-based filtering
+            session_runs = E2eRun.objects.filter(
+                project=project, timestamp__gte=session_start_dt
+            )
+
+        current_metrics["e2e_runs"] = session_runs.count()
+        current_metrics["e2e_passed"] = session_runs.filter(outcome="pass").count()
+        current_metrics["e2e_failed"] = session_runs.filter(outcome="fail").count()
+        current_metrics["e2e_error"] = session_runs.filter(outcome="error").count()
+
+        if current_metrics["e2e_runs"] > 0:
+            current_metrics["e2e_error_rate"] = (
+                current_metrics["e2e_error"] / current_metrics["e2e_runs"]
+            ) * 100
+        else:
+            current_metrics["e2e_error_rate"] = 0.0
+
+        # Get average actions from E2eRunMetrics
+        session_run_ids = list(session_runs.values_list("id", flat=True))
+        avg_result = E2eRunMetrics.objects.filter(
+            run_id__in=session_run_ids
+        ).aggregate(avg_steps=Avg("num_steps"))
+        current_metrics["e2e_avg_actions"] = avg_result["avg_steps"] or 0.0
+
+        # Count completed E2E runs
+        current_metrics["_completed_runs"] = session_runs.filter(
+            status__in=["completed", "error"]
+        ).count()
+        current_metrics["_pending_runs"] = session_runs.filter(
+            status__in=["pending", "running"]
+        ).count()
+
+        return current_metrics
+
+    def _handle_completion(
+        self,
+        metrics: Dict[str, Any],
+        skip_build: bool,
+    ) -> bool:
+        """Check if pipeline run is complete based on metrics.
+
+        Determines whether polling should stop based on build status,
+        container health, pipeline status, and E2E run completion.
+
+        Args:
+            metrics: Current metrics dictionary
+            skip_build: Whether build phase was skipped
+
+        Returns:
+            True if polling should stop (completion detected), False otherwise
+        """
+        pending_runs = metrics.get("_pending_runs", 0)
+        e2e_runs = metrics.get("e2e_runs", 0)
+
+        # Check if we have enough to call it done
+        if metrics.get("build_status") == "succeeded" and metrics.get("container_healthy"):
+            if skip_build:
+                # In skip_build mode, just check container health
+                return True
+            elif metrics.get("pipeline_status") in ["completed", "failed"]:
+                # Pipeline done - wait a bit for any in-flight E2E runs
+                if pending_runs == 0 or e2e_runs == 0:
+                    return True
+            elif e2e_runs > 0 and pending_runs == 0:
+                # All E2E runs completed
+                return True
+
+        return False
+
+    def _calculate_backoff(
+        self,
+        attempt: int,
+        base_interval: int,
+    ) -> float:
+        """Calculate polling interval with optional backoff.
+
+        Currently returns a constant interval, but can be extended
+        to implement exponential backoff if needed.
+
+        Args:
+            attempt: Current polling attempt number (0-indexed)
+            base_interval: Base polling interval in seconds
+
+        Returns:
+            Sleep duration in seconds
+        """
+        # For now, use constant polling interval
+        # Can be extended to implement exponential backoff if needed
+        return float(base_interval)
+
+    def _log_polling_progress(
+        self,
+        metrics: Dict[str, Any],
+        start_wait: float,
+    ) -> None:
+        """Log polling progress for verbose output.
+
+        Args:
+            metrics: Current metrics dictionary
+            start_wait: Timestamp when polling started
+        """
+        elapsed = int(time.time() - start_wait)
+        build_status = metrics.get("build_status", "none")
+        container_status = "healthy" if metrics.get("container_healthy") else "pending"
+        completed_runs = metrics.get("_completed_runs", 0)
+        pending_runs = metrics.get("_pending_runs", 0)
+        e2e_runs = metrics.get("e2e_runs", 0)
+        pe_id = metrics.get("_pe_id")
+        exec_info = f"pe={pe_id[:8] if pe_id else 'none'}" if pe_id else ""
+
+        logger.debug(
+            f"  [+{elapsed}s] "
+            f"build={build_status} "
+            f"container={container_status} "
+            f"e2e={completed_runs}/{e2e_runs} (pending={pending_runs}) "
+            f"{exec_info}"
+        )
+
+    def _cleanup_internal_metadata(self, metrics: Dict[str, Any]) -> Dict[str, Any]:
+        """Remove internal tracking metadata from metrics.
+
+        Cleans up internal keys used for tracking during polling
+        before returning metrics to caller.
+
+        Args:
+            metrics: Metrics dictionary with internal keys
+
+        Returns:
+            Cleaned metrics dictionary
+        """
+        internal_keys = ["_pe_id", "_build_id", "_container_id", "_kg_id", "_pe_obj", "_completed_runs", "_pending_runs"]
+        for key in internal_keys:
+            metrics.pop(key, None)
+        return metrics
+
     def _poll_for_completion(
         self,
         project,
@@ -445,6 +716,13 @@ class PipelineAdapter(BaseAdapter):
         verbose: bool,
     ) -> Dict[str, Any]:
         """Poll for pipeline completion and collect metrics.
+
+        Orchestrates the polling loop by delegating to focused helper functions:
+        - _check_run_status(): Check current status via database
+        - _handle_completion(): Determine if polling should stop
+        - _calculate_backoff(): Manage polling intervals
+        - _log_polling_progress(): Log verbose output
+        - _cleanup_internal_metadata(): Clean up before returning
 
         NOTE: This is a private helper that works with Django model instances directly.
         The abstraction layer is at the public interface (discover/execute), not here.
@@ -471,16 +749,9 @@ class PipelineAdapter(BaseAdapter):
             Dictionary of collected metrics
         """
         from datetime import datetime, timezone as dt_timezone
-        from django.db.models import Avg, Q
         from django.db import OperationalError
-        from django.utils import timezone
-        from backend.builds.models import Build
-        from backend.containers.models import Container
-        from backend.e2es.models import E2eRun, E2eRunMetrics
-        from backend.graphs.models import GraphPage, KnowledgeGraph
-        from backend.pipelines.models import PipelineExecution
 
-        metrics = {}
+        metrics: Dict[str, Any] = {}
         start_wait = time.time()
         session_start_dt = datetime.fromtimestamp(
             session_start, tz=dt_timezone.utc
@@ -489,7 +760,7 @@ class PipelineAdapter(BaseAdapter):
         # Store session context for verification
         metrics["_session_start"] = session_start
 
-        # Create a retry decorator for database operations
+        # Create a retry-wrapped version of _check_run_status
         @retry_with_backoff(
             max_attempts=self._retry_config.max_attempts,
             initial_delay=self._retry_config.initial_delay,
@@ -500,174 +771,342 @@ class PipelineAdapter(BaseAdapter):
         )
         def _fetch_metrics_with_retry():
             """Fetch metrics with retry on transient database failures."""
-            current_metrics = {}
+            return self._check_run_status(project, session_start_dt)
 
-            # Check pipeline execution - filter by session start time to avoid race conditions
-            pe = (
-                PipelineExecution.objects.filter(
-                    project=project,
-                    timestamp__gte=session_start_dt
-                )
-                .order_by("-timestamp")
-                .first()
-            )
-
-            if pe:
-                current_metrics["pipeline_status"] = pe.status
-                current_metrics["_pe_obj"] = pe
-                current_metrics["_pe_id"] = str(pe.id)
-            else:
-                current_metrics["_pe_obj"] = None
-                current_metrics["_pe_id"] = None
-
-            # Check build - filter by session start time
-            build = (
-                Build.objects.filter(
-                    project=project,
-                    timestamp__gte=session_start_dt
-                )
-                .order_by("-timestamp")
-                .first()
-            )
-            if build:
-                current_metrics["build_status"] = build.status
-                current_metrics["_build_id"] = str(build.id)
-                if build.completed_at and build.timestamp:
-                    current_metrics["build_duration_seconds"] = (
-                        build.completed_at - build.timestamp
-                    ).total_seconds()
-
-            # Check container - filter by session start time
-            container = (
-                Container.objects.filter(
-                    project=project,
-                    timestamp__gte=session_start_dt
-                )
-                .order_by("-timestamp")
-                .first()
-            )
-            if container:
-                current_metrics["container_healthy"] = container.is_healthy
-                current_metrics["health_checks_passed"] = container.health_checks_passed
-                current_metrics["_container_id"] = str(container.id)
-
-            # Check knowledge graph - use the one from the latest container's environment if available
-            # This prevents race conditions where multiple executions might share a KG
-            if container and hasattr(container, 'environment'):
-                kg = KnowledgeGraph.objects.filter(environment=container.environment).first()
-            else:
-                kg = KnowledgeGraph.objects.filter(environment__project=project).first()
-
-            if kg:
-                current_metrics["kg_exists"] = True
-                current_metrics["kg_pages"] = GraphPage.objects.filter(graph=kg).count()
-                current_metrics["_kg_id"] = str(kg.id)
-            else:
-                current_metrics["kg_exists"] = False
-                current_metrics["kg_pages"] = 0
-                current_metrics["_kg_id"] = None
-
-            # Check E2E metrics - ONLY count runs from this evaluation session
-            # Use pipeline execution correlation when available for stronger guarantees
-            pe = current_metrics.get("_pe_obj")
-            if pe:
-                # Include runs tied to this specific pipeline execution OR created after session start
-                # The pipeline_execution FK is the strongest correlation
-                session_runs = E2eRun.objects.filter(
-                    Q(pipeline_execution=pe) | Q(project=project, timestamp__gte=session_start_dt)
-                ).distinct()
-            else:
-                # Fallback to timestamp-based filtering
-                session_runs = E2eRun.objects.filter(
-                    project=project, timestamp__gte=session_start_dt
-                )
-
-            current_metrics["e2e_runs"] = session_runs.count()
-            current_metrics["e2e_passed"] = session_runs.filter(outcome="pass").count()
-            current_metrics["e2e_failed"] = session_runs.filter(outcome="fail").count()
-            current_metrics["e2e_error"] = session_runs.filter(outcome="error").count()
-
-            if current_metrics["e2e_runs"] > 0:
-                current_metrics["e2e_error_rate"] = (
-                    current_metrics["e2e_error"] / current_metrics["e2e_runs"]
-                ) * 100
-            else:
-                current_metrics["e2e_error_rate"] = 0.0
-
-            # Get average actions from E2eRunMetrics
-            session_run_ids = list(session_runs.values_list("id", flat=True))
-            avg_result = E2eRunMetrics.objects.filter(
-                run_id__in=session_run_ids
-            ).aggregate(avg_steps=Avg("num_steps"))
-            current_metrics["e2e_avg_actions"] = avg_result["avg_steps"] or 0.0
-
-            # Count completed E2E runs
-            current_metrics["_completed_runs"] = session_runs.filter(
-                status__in=["completed", "error"]
-            ).count()
-            current_metrics["_pending_runs"] = session_runs.filter(
-                status__in=["pending", "running"]
-            ).count()
-
-            return current_metrics
-
+        attempt = 0
         while time.time() - start_wait < timeout:
             try:
                 # Fetch metrics with retry logic
                 current_metrics = _fetch_metrics_with_retry()
                 metrics.update(current_metrics)
 
-                # Extract temporary values (internal tracking data)
-                completed_runs = metrics.pop("_completed_runs", 0)
-                pending_runs = metrics.pop("_pending_runs", 0)
-                metrics.pop("_pe_obj", None)
-
-                # Keep execution IDs for logging/debugging but don't expose to caller
-                pe_id = metrics.get("_pe_id")
-                build_id = metrics.get("_build_id")
-                container_id = metrics.get("_container_id")
-
-                # Print progress
+                # Log progress if verbose
                 if verbose:
-                    elapsed = int(time.time() - start_wait)
-                    build_status = metrics.get("build_status", "none")
-                    container_status = (
-                        "healthy" if metrics.get("container_healthy") else "pending"
-                    )
-                    exec_info = f"pe={pe_id[:8] if pe_id else 'none'}" if pe_id else ""
-                    logger.debug(
-                        f"  [+{elapsed}s] "
-                        f"build={build_status} "
-                        f"container={container_status} "
-                        f"e2e={completed_runs}/{metrics['e2e_runs']} (pending={pending_runs}) "
-                        f"{exec_info}"
-                    )
+                    self._log_polling_progress(metrics, start_wait)
 
-                # Check if we have enough to call it done
-                if metrics.get("build_status") == "succeeded" and metrics.get(
-                    "container_healthy"
-                ):
-                    if skip_build:
-                        # In skip_build mode, just check container health
-                        break
-                    elif metrics.get("pipeline_status") in ["completed", "failed"]:
-                        # Pipeline done - wait a bit for any in-flight E2E runs
-                        if pending_runs == 0 or metrics["e2e_runs"] == 0:
-                            break
-                    elif metrics["e2e_runs"] > 0 and pending_runs == 0:
-                        # All E2E runs completed
-                        break
+                # Check if we're done
+                if self._handle_completion(metrics, skip_build):
+                    break
 
             except Exception as e:
                 # If retry logic failed completely, log and continue polling
                 logger.warning(f"Failed to fetch metrics during polling (will retry): {e}")
 
-            time.sleep(poll_interval)
+            # Calculate and apply backoff
+            sleep_duration = self._calculate_backoff(attempt, poll_interval)
+            time.sleep(sleep_duration)
+            attempt += 1
 
         # Clean up internal metadata before returning
         # Keep session_start for verification in _collect_metrics
-        for key in ["_pe_id", "_build_id", "_container_id", "_kg_id"]:
-            metrics.pop(key, None)
+        return self._cleanup_internal_metadata(metrics)
+
+    def _collect_build_metrics(
+        self, project, session_start_dt, diagnostics: List[str]
+    ) -> Dict[str, Any]:
+        """Collect build-related metrics.
+
+        Args:
+            project: Project instance (Django model)
+            session_start_dt: Session start as datetime (UTC)
+            diagnostics: List to append diagnostic messages to
+
+        Returns:
+            Dictionary of build metrics
+        """
+        from backend.builds.models import Build
+
+        metrics: Dict[str, Any] = {}
+        build = (
+            Build.objects.filter(
+                project=project,
+                timestamp__gte=session_start_dt
+            )
+            .order_by("-timestamp")
+            .first()
+        )
+        if build:
+            metrics["build_status"] = build.status
+            metrics["build_id"] = str(build.id)
+            if build.completed_at and build.timestamp:
+                metrics["build_duration"] = (
+                    build.completed_at - build.timestamp
+                ).total_seconds()
+            else:
+                metrics["build_duration"] = None
+            if build.status != "succeeded":
+                diagnostics.append(f"Build {build.status}: check CodeBuild logs")
+        else:
+            metrics["build_status"] = "not_triggered"
+            metrics["build_id"] = None
+            metrics["build_duration"] = None
+            diagnostics.append("No build found for project")
+
+        return metrics
+
+    def _collect_container_metrics(
+        self, project, session_start_dt, diagnostics: List[str]
+    ) -> Dict[str, Any]:
+        """Collect container-related metrics.
+
+        Args:
+            project: Project instance (Django model)
+            session_start_dt: Session start as datetime (UTC)
+            diagnostics: List to append diagnostic messages to
+
+        Returns:
+            Dictionary of container metrics and the container instance via _container key
+        """
+        from backend.containers.models import Container
+
+        metrics: Dict[str, Any] = {}
+        container = (
+            Container.objects.filter(
+                project=project,
+                timestamp__gte=session_start_dt
+            )
+            .order_by("-timestamp")
+            .first()
+        )
+        if container:
+            metrics["container_healthy"] = container.is_healthy
+            metrics["health_checks_passed"] = container.health_checks_passed
+            metrics["container_id"] = str(container.id)
+            if container.started_at and container.timestamp:
+                metrics["container_startup_time"] = (
+                    container.started_at - container.timestamp
+                ).total_seconds()
+            else:
+                metrics["container_startup_time"] = None
+            if not container.is_healthy:
+                diagnostics.append(
+                    f"Container unhealthy: {container.health_checks_passed} checks passed"
+                )
+        else:
+            metrics["container_healthy"] = False
+            metrics["health_checks_passed"] = 0
+            metrics["container_id"] = None
+            metrics["container_startup_time"] = None
+            diagnostics.append("No container found for project")
+
+        # Return container instance for use in KG lookup
+        metrics["_container"] = container
+        return metrics
+
+    def _collect_pipeline_metrics(
+        self, project, session_start_dt, diagnostics: List[str]
+    ) -> Dict[str, Any]:
+        """Collect pipeline execution metrics.
+
+        Args:
+            project: Project instance (Django model)
+            session_start_dt: Session start as datetime (UTC)
+            diagnostics: List to append diagnostic messages to
+
+        Returns:
+            Dictionary of pipeline metrics and the pipeline execution instance via _pe key
+        """
+        from backend.pipelines.models import PipelineExecution, StageExecution
+
+        metrics: Dict[str, Any] = {}
+        pe = (
+            PipelineExecution.objects.filter(
+                project=project,
+                timestamp__gte=session_start_dt
+            )
+            .order_by("-timestamp")
+            .first()
+        )
+        if pe:
+            metrics["pipeline_status"] = pe.status
+            metrics["pipeline_id"] = str(pe.id)
+            metrics["pipeline_name"] = pe.pipeline.name if pe.pipeline else None
+            if pe.error_message:
+                diagnostics.append(f"Pipeline error: {pe.error_message[:100]}")
+
+            # Collect stage breakdown - correlated by pipeline execution
+            stages = StageExecution.objects.filter(
+                pipeline_execution=pe
+            ).order_by("order")
+            stage_details = []
+            for stage in stages:
+                stage_info = {
+                    "name": stage.stage_name,
+                    "status": stage.status,
+                    "order": stage.order,
+                }
+                if stage.started_at and stage.completed_at:
+                    stage_info["duration"] = (
+                        stage.completed_at - stage.started_at
+                    ).total_seconds()
+                else:
+                    stage_info["duration"] = None
+                if stage.error_message:
+                    stage_info["error"] = stage.error_message[:100]
+                    diagnostics.append(
+                        f"Stage '{stage.stage_name}' failed: {stage.error_message[:50]}"
+                    )
+                stage_details.append(stage_info)
+            metrics["pipeline_stages"] = stage_details
+        else:
+            metrics["pipeline_status"] = None
+            metrics["pipeline_id"] = None
+            metrics["pipeline_name"] = None
+            metrics["pipeline_stages"] = []
+
+        # Return pipeline execution instance for use in E2E lookup
+        metrics["_pe"] = pe
+        return metrics
+
+    def _collect_kg_metrics(
+        self, project, container, diagnostics: List[str]
+    ) -> Dict[str, Any]:
+        """Collect knowledge graph metrics.
+
+        Args:
+            project: Project instance (Django model)
+            container: Container instance (may be None)
+            diagnostics: List to append diagnostic messages to
+
+        Returns:
+            Dictionary of knowledge graph metrics
+        """
+        from backend.graphs.models import GraphPage, KnowledgeGraph
+
+        metrics: Dict[str, Any] = {}
+        # Use the container's specific environment if available to prevent race conditions
+        if container and hasattr(container, 'environment'):
+            kg = KnowledgeGraph.objects.filter(environment=container.environment).first()
+        else:
+            kg = KnowledgeGraph.objects.filter(environment__project=project).first()
+
+        if kg:
+            metrics["kg_exists"] = True
+            metrics["kg_id"] = str(kg.id)
+            metrics["kg_pages"] = GraphPage.objects.filter(graph=kg).count()
+            if metrics["kg_pages"] == 0:
+                diagnostics.append("Knowledge graph exists but has 0 pages - crawl failed")
+        else:
+            metrics["kg_exists"] = False
+            metrics["kg_id"] = None
+            metrics["kg_pages"] = 0
+            diagnostics.append("No knowledge graph found")
+
+        return metrics
+
+    def _collect_surfer_metrics(
+        self, project, session_start_dt, diagnostics: List[str]
+    ) -> Dict[str, Any]:
+        """Collect surfer/crawler metrics.
+
+        Args:
+            project: Project instance (Django model)
+            session_start_dt: Session start as datetime (UTC)
+            diagnostics: List to append diagnostic messages to
+
+        Returns:
+            Dictionary containing surfer summary under 'surfers' key
+        """
+        from backend.surfers.models import Surfer
+
+        session_surfers = Surfer.objects.filter(
+            project=project,
+            timestamp__gte=session_start_dt
+        ).order_by("-timestamp")
+
+        surfer_summary: Dict[str, Any] = {
+            "total": session_surfers.count(),
+            "completed": 0,
+            "failed": 0,
+            "running": 0,
+            "errors": [],
+        }
+
+        for surfer in session_surfers[:10]:  # Check last 10 surfers
+            goal_status = surfer.goal_status
+            if goal_status == "DONE":
+                surfer_summary["completed"] += 1
+            elif goal_status == "FAILED":
+                surfer_summary["failed"] += 1
+                # Extract error from metadata
+                if surfer.metadata and surfer.metadata.get("error"):
+                    error_msg = surfer.metadata["error"][:100]
+                    if error_msg not in surfer_summary["errors"]:
+                        surfer_summary["errors"].append(error_msg)
+                        diagnostics.append(f"Surfer error: {error_msg[:60]}")
+            elif goal_status is None:
+                surfer_summary["running"] += 1
+
+        if surfer_summary["failed"] > 0 and surfer_summary["completed"] == 0:
+            diagnostics.append(
+                f"All {surfer_summary['failed']} surfers failed - browser issues likely"
+            )
+
+        return {"surfers": surfer_summary}
+
+    def _collect_e2e_metrics(
+        self, project, session_start_dt, pe, diagnostics: List[str]
+    ) -> Dict[str, Any]:
+        """Collect E2E test metrics.
+
+        Args:
+            project: Project instance (Django model)
+            session_start_dt: Session start as datetime (UTC)
+            pe: Pipeline execution instance (may be None)
+            diagnostics: List to append diagnostic messages to
+
+        Returns:
+            Dictionary of E2E metrics
+        """
+        from django.db.models import Avg, Q
+        from backend.e2es.models import E2eRun, E2eRunMetrics
+
+        metrics: Dict[str, Any] = {}
+
+        if pe:
+            # Use pipeline execution FK for strongest correlation
+            session_runs = E2eRun.objects.filter(
+                Q(pipeline_execution=pe) | Q(project=project, timestamp__gte=session_start_dt)
+            ).distinct()
+        else:
+            session_runs = E2eRun.objects.filter(
+                project=project, timestamp__gte=session_start_dt
+            )
+
+        metrics["e2e_runs"] = session_runs.count()
+        metrics["e2e_passed"] = session_runs.filter(outcome="pass").count()
+        metrics["e2e_failed"] = session_runs.filter(outcome="fail").count()
+        metrics["e2e_error"] = session_runs.filter(outcome="error").count()
+        metrics["e2e_pending"] = session_runs.filter(
+            status__in=["pending", "running"]
+        ).count()
+
+        if metrics["e2e_runs"] > 0:
+            metrics["e2e_error_rate"] = round(
+                (metrics["e2e_error"] / metrics["e2e_runs"]) * 100, 1
+            )
+            metrics["e2e_pass_rate"] = round(
+                (metrics["e2e_passed"] / metrics["e2e_runs"]) * 100, 1
+            )
+        else:
+            metrics["e2e_error_rate"] = 0.0
+            metrics["e2e_pass_rate"] = 0.0
+
+        # Get average steps per run
+        session_run_ids = list(session_runs.values_list("id", flat=True))
+        if session_run_ids:
+            avg_result = E2eRunMetrics.objects.filter(
+                run_id__in=session_run_ids
+            ).aggregate(avg_steps=Avg("num_steps"))
+            metrics["e2e_avg_steps"] = round(avg_result["avg_steps"] or 0, 1)
+        else:
+            metrics["e2e_avg_steps"] = 0.0
+
+        # Check for error runs
+        if metrics["e2e_error"] > 0:
+            diagnostics.append(
+                f"{metrics['e2e_error']} E2E runs errored - this is a system bug!"
+            )
 
         return metrics
 
@@ -679,6 +1118,14 @@ class PipelineAdapter(BaseAdapter):
         NOTE: This is a private helper that works with Django model instances directly.
         The abstraction layer is at the public interface (discover/execute), not here.
         This method performs complex database queries that are specific to Django ORM.
+
+        This method orchestrates collection of metrics from smaller focused functions:
+        - _collect_build_metrics: Build status and duration
+        - _collect_container_metrics: Container health and startup time
+        - _collect_pipeline_metrics: Pipeline execution and stage details
+        - _collect_kg_metrics: Knowledge graph existence and page count
+        - _collect_surfer_metrics: Surfer/crawler status summary
+        - _collect_e2e_metrics: E2E test run statistics
 
         This method includes retry logic for database queries to handle transient
         connection issues.
@@ -698,15 +1145,7 @@ class PipelineAdapter(BaseAdapter):
             Dictionary of metrics including diagnostics
         """
         from datetime import datetime, timezone as dt_timezone
-        from django.db.models import Avg, Q
         from django.db import OperationalError
-        from django.utils import timezone
-        from backend.builds.models import Build
-        from backend.containers.models import Container
-        from backend.e2es.models import E2eRun, E2eRunMetrics
-        from backend.graphs.models import GraphPage, KnowledgeGraph
-        from backend.pipelines.models import PipelineExecution, StageExecution
-        from backend.surfers.models import Surfer
 
         @retry_with_backoff(
             max_attempts=self._retry_config.max_attempts,
@@ -722,230 +1161,49 @@ class PipelineAdapter(BaseAdapter):
                 session_start, tz=dt_timezone.utc
             )
 
-            metrics = {}
-            diagnostics = []
+            metrics: Dict[str, Any] = {}
+            diagnostics: List[str] = []
 
             # Store session context for verification
             metrics["_session_start"] = session_start
 
-            # =====================================================================
-            # BUILD METRICS - filter by session start time
-            # =====================================================================
-            build = (
-                Build.objects.filter(
-                    project=project,
-                    timestamp__gte=session_start_dt
-                )
-                .order_by("-timestamp")
-                .first()
+            # Collect build metrics
+            build_metrics = self._collect_build_metrics(
+                project, session_start_dt, diagnostics
             )
-            if build:
-                metrics["build_status"] = build.status
-                metrics["build_id"] = str(build.id)
-                if build.completed_at and build.timestamp:
-                    metrics["build_duration"] = (
-                        build.completed_at - build.timestamp
-                    ).total_seconds()
-                else:
-                    metrics["build_duration"] = None
-                if build.status != "succeeded":
-                    diagnostics.append(f"Build {build.status}: check CodeBuild logs")
-            else:
-                metrics["build_status"] = "not_triggered"
-                metrics["build_id"] = None
-                metrics["build_duration"] = None
-                diagnostics.append("No build found for project")
+            metrics.update(build_metrics)
 
-            # =====================================================================
-            # CONTAINER METRICS - filter by session start time
-            # =====================================================================
-            container = (
-                Container.objects.filter(
-                    project=project,
-                    timestamp__gte=session_start_dt
-                )
-                .order_by("-timestamp")
-                .first()
+            # Collect container metrics
+            container_metrics = self._collect_container_metrics(
+                project, session_start_dt, diagnostics
             )
-            if container:
-                metrics["container_healthy"] = container.is_healthy
-                metrics["health_checks_passed"] = container.health_checks_passed
-                metrics["container_id"] = str(container.id)
-                if container.started_at and container.timestamp:
-                    metrics["container_startup_time"] = (
-                        container.started_at - container.timestamp
-                    ).total_seconds()
-                else:
-                    metrics["container_startup_time"] = None
-                if not container.is_healthy:
-                    diagnostics.append(
-                        f"Container unhealthy: {container.health_checks_passed} checks passed"
-                    )
-            else:
-                metrics["container_healthy"] = False
-                metrics["health_checks_passed"] = 0
-                metrics["container_id"] = None
-                metrics["container_startup_time"] = None
-                diagnostics.append("No container found for project")
+            container = container_metrics.pop("_container")
+            metrics.update(container_metrics)
 
-            # =====================================================================
-            # PIPELINE EXECUTION METRICS - filter by session start time
-            # =====================================================================
-            pe = (
-                PipelineExecution.objects.filter(
-                    project=project,
-                    timestamp__gte=session_start_dt
-                )
-                .order_by("-timestamp")
-                .first()
+            # Collect pipeline metrics
+            pipeline_metrics = self._collect_pipeline_metrics(
+                project, session_start_dt, diagnostics
             )
-            if pe:
-                metrics["pipeline_status"] = pe.status
-                metrics["pipeline_id"] = str(pe.id)
-                metrics["pipeline_name"] = pe.pipeline.name if pe.pipeline else None
-                if pe.error_message:
-                    diagnostics.append(f"Pipeline error: {pe.error_message[:100]}")
+            pe = pipeline_metrics.pop("_pe")
+            metrics.update(pipeline_metrics)
 
-                # Collect stage breakdown - correlated by pipeline execution
-                stages = StageExecution.objects.filter(
-                    pipeline_execution=pe
-                ).order_by("order")
-                stage_details = []
-                for stage in stages:
-                    stage_info = {
-                        "name": stage.stage_name,
-                        "status": stage.status,
-                        "order": stage.order,
-                    }
-                    if stage.started_at and stage.completed_at:
-                        stage_info["duration"] = (
-                            stage.completed_at - stage.started_at
-                        ).total_seconds()
-                    else:
-                        stage_info["duration"] = None
-                    if stage.error_message:
-                        stage_info["error"] = stage.error_message[:100]
-                        diagnostics.append(
-                            f"Stage '{stage.stage_name}' failed: {stage.error_message[:50]}"
-                        )
-                    stage_details.append(stage_info)
-                metrics["pipeline_stages"] = stage_details
-            else:
-                metrics["pipeline_status"] = None
-                metrics["pipeline_id"] = None
-                metrics["pipeline_name"] = None
-                metrics["pipeline_stages"] = []
+            # Collect knowledge graph metrics (needs container for environment)
+            kg_metrics = self._collect_kg_metrics(project, container, diagnostics)
+            metrics.update(kg_metrics)
 
-            # =====================================================================
-            # KNOWLEDGE GRAPH METRICS - correlated with container environment
-            # =====================================================================
-            # Use the container's specific environment if available to prevent race conditions
-            if container and hasattr(container, 'environment'):
-                kg = KnowledgeGraph.objects.filter(environment=container.environment).first()
-            else:
-                kg = KnowledgeGraph.objects.filter(environment__project=project).first()
+            # Collect surfer metrics
+            surfer_metrics = self._collect_surfer_metrics(
+                project, session_start_dt, diagnostics
+            )
+            metrics.update(surfer_metrics)
 
-            if kg:
-                metrics["kg_exists"] = True
-                metrics["kg_id"] = str(kg.id)
-                metrics["kg_pages"] = GraphPage.objects.filter(graph=kg).count()
-                if metrics["kg_pages"] == 0:
-                    diagnostics.append("Knowledge graph exists but has 0 pages - crawl failed")
-            else:
-                metrics["kg_exists"] = False
-                metrics["kg_id"] = None
-                metrics["kg_pages"] = 0
-                diagnostics.append("No knowledge graph found")
+            # Collect E2E metrics (needs pipeline execution for correlation)
+            e2e_metrics = self._collect_e2e_metrics(
+                project, session_start_dt, pe, diagnostics
+            )
+            metrics.update(e2e_metrics)
 
-            # =====================================================================
-            # SURFER/CRAWLER METRICS - filter by session start time
-            # =====================================================================
-            session_surfers = Surfer.objects.filter(
-                project=project,
-                timestamp__gte=session_start_dt
-            ).order_by("-timestamp")
-
-            surfer_summary = {
-                "total": session_surfers.count(),
-                "completed": 0,
-                "failed": 0,
-                "running": 0,
-                "errors": [],
-            }
-
-            for surfer in session_surfers[:10]:  # Check last 10 surfers
-                goal_status = surfer.goal_status
-                if goal_status == "DONE":
-                    surfer_summary["completed"] += 1
-                elif goal_status == "FAILED":
-                    surfer_summary["failed"] += 1
-                    # Extract error from metadata
-                    if surfer.metadata and surfer.metadata.get("error"):
-                        error_msg = surfer.metadata["error"][:100]
-                        if error_msg not in surfer_summary["errors"]:
-                            surfer_summary["errors"].append(error_msg)
-                            diagnostics.append(f"Surfer error: {error_msg[:60]}")
-                elif goal_status is None:
-                    surfer_summary["running"] += 1
-
-            metrics["surfers"] = surfer_summary
-
-            if surfer_summary["failed"] > 0 and surfer_summary["completed"] == 0:
-                diagnostics.append(
-                    f"All {surfer_summary['failed']} surfers failed - browser issues likely"
-                )
-
-            # =====================================================================
-            # E2E TEST METRICS (session-scoped with pipeline execution correlation)
-            # =====================================================================
-            if pe:
-                # Use pipeline execution FK for strongest correlation
-                session_runs = E2eRun.objects.filter(
-                    Q(pipeline_execution=pe) | Q(project=project, timestamp__gte=session_start_dt)
-                ).distinct()
-            else:
-                session_runs = E2eRun.objects.filter(
-                    project=project, timestamp__gte=session_start_dt
-                )
-
-            metrics["e2e_runs"] = session_runs.count()
-            metrics["e2e_passed"] = session_runs.filter(outcome="pass").count()
-            metrics["e2e_failed"] = session_runs.filter(outcome="fail").count()
-            metrics["e2e_error"] = session_runs.filter(outcome="error").count()
-            metrics["e2e_pending"] = session_runs.filter(
-                status__in=["pending", "running"]
-            ).count()
-
-            if metrics["e2e_runs"] > 0:
-                metrics["e2e_error_rate"] = round(
-                    (metrics["e2e_error"] / metrics["e2e_runs"]) * 100, 1
-                )
-                metrics["e2e_pass_rate"] = round(
-                    (metrics["e2e_passed"] / metrics["e2e_runs"]) * 100, 1
-                )
-            else:
-                metrics["e2e_error_rate"] = 0.0
-                metrics["e2e_pass_rate"] = 0.0
-
-            # Get average steps per run
-            session_run_ids = list(session_runs.values_list("id", flat=True))
-            if session_run_ids:
-                avg_result = E2eRunMetrics.objects.filter(
-                    run_id__in=session_run_ids
-                ).aggregate(avg_steps=Avg("num_steps"))
-                metrics["e2e_avg_steps"] = round(avg_result["avg_steps"] or 0, 1)
-            else:
-                metrics["e2e_avg_steps"] = 0.0
-
-            # Check for error runs
-            if metrics["e2e_error"] > 0:
-                diagnostics.append(
-                    f"{metrics['e2e_error']} E2E runs errored - this is a system bug!"
-                )
-
-            # =====================================================================
-            # DIAGNOSTICS SUMMARY
-            # =====================================================================
+            # Diagnostics summary
             metrics["diagnostics"] = diagnostics
             metrics["diagnostic_count"] = len(diagnostics)
 

@@ -1,12 +1,27 @@
 """
 Environment resolver for loading and instantiating environments from config.
 """
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
+from pydantic import BaseModel
+
+from systemeval.config import (
+    AnyEnvironmentConfig,
+    CompositeEnvConfig,
+)
 from systemeval.environments.base import Environment, EnvironmentType
 from systemeval.environments.standalone import StandaloneEnvironment
 from systemeval.environments.docker_compose import DockerComposeEnvironment
 from systemeval.environments.composite import CompositeEnvironment
+from systemeval.environments.ngrok import NgrokEnvironment
+from systemeval.environments.browser import BrowserEnvironment
+
+
+def _config_to_dict(config: Union[AnyEnvironmentConfig, Dict[str, Any]]) -> Dict[str, Any]:
+    """Convert a typed config or dict to a dict for environment classes."""
+    if isinstance(config, BaseModel):
+        return config.model_dump()
+    return config
 
 
 class EnvironmentResolver:
@@ -16,12 +31,14 @@ class EnvironmentResolver:
     Handles dependency resolution for composite environments.
     """
 
-    def __init__(self, environments_config: Dict[str, Dict[str, Any]]) -> None:
+    def __init__(
+        self, environments_config: Dict[str, Union[AnyEnvironmentConfig, Dict[str, Any]]]
+    ) -> None:
         """
         Initialize resolver with environment configurations.
 
         Args:
-            environments_config: Dict mapping env names to their configs
+            environments_config: Dict mapping env names to their configs (typed or dict)
         """
         self.config = environments_config
         self._cache: Dict[str, Environment] = {}
@@ -47,17 +64,31 @@ class EnvironmentResolver:
             raise KeyError(f"Environment '{name}' not found in configuration")
 
         env_config = self.config[name]
-        env_type = env_config.get("type", "standalone")
+        # Get type from typed model or dict
+        if isinstance(env_config, BaseModel):
+            env_type = env_config.type
+        else:
+            env_type = env_config.get("type", "standalone")
+
+        # Convert to dict for environment class constructors
+        config_dict = _config_to_dict(env_config)
 
         if env_type == EnvironmentType.STANDALONE.value:
-            env = StandaloneEnvironment(name, env_config)
+            env = StandaloneEnvironment(name, config_dict)
         elif env_type == EnvironmentType.DOCKER_COMPOSE.value:
-            env = DockerComposeEnvironment(name, env_config)
+            env = DockerComposeEnvironment(name, config_dict)
         elif env_type == EnvironmentType.COMPOSITE.value:
             # Resolve dependencies first
-            depends_on = env_config.get("depends_on", [])
+            if isinstance(env_config, CompositeEnvConfig):
+                depends_on = env_config.depends_on
+            else:
+                depends_on = env_config.get("depends_on", [])
             children = [self.resolve(dep_name) for dep_name in depends_on]
-            env = CompositeEnvironment(name, env_config, children)
+            env = CompositeEnvironment(name, config_dict, children)
+        elif env_type == EnvironmentType.NGROK.value:
+            env = NgrokEnvironment(name, config_dict)
+        elif env_type == EnvironmentType.BROWSER.value:
+            env = BrowserEnvironment(name, config_dict)
         else:
             raise ValueError(f"Unknown environment type: {env_type}")
 
@@ -71,10 +102,13 @@ class EnvironmentResolver:
         Returns:
             Dict mapping env names to their types
         """
-        return {
-            name: config.get("type", "standalone")
-            for name, config in self.config.items()
-        }
+        result = {}
+        for name, config in self.config.items():
+            if isinstance(config, BaseModel):
+                result[name] = config.type
+            else:
+                result[name] = config.get("type", "standalone")
+        return result
 
     def get_default_environment(self) -> Optional[str]:
         """
@@ -93,12 +127,19 @@ class EnvironmentResolver:
 
         # Check for explicit default
         for name, config in self.config.items():
-            if config.get("default", False):
+            if isinstance(config, BaseModel):
+                if config.default:
+                    return name
+            elif config.get("default", False):
                 return name
 
         # Prefer non-composite
         for name, config in self.config.items():
-            if config.get("type", "standalone") != EnvironmentType.COMPOSITE.value:
+            if isinstance(config, BaseModel):
+                env_type = config.type
+            else:
+                env_type = config.get("type", "standalone")
+            if env_type != EnvironmentType.COMPOSITE.value:
                 return name
 
         # Fall back to first

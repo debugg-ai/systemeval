@@ -7,26 +7,26 @@ pass/fail criteria, and unified reporting.
 SCHEMA HIERARCHY (Read this first!):
 =====================================================================
 
-1. TestResult (adapters/base.py)
+1. Shared Types (types.py)
+   - Verdict enum: PASS, FAIL, ERROR
+   - TestResult, TestItem, TestFailure dataclasses
+   - Central location to avoid circular dependencies
+
+2. TestResult (adapters/base.py re-exports from types.py)
    - Intermediate format returned by adapter.execute()
    - Contains: passed, failed, errors, skipped, duration, exit_code
    - Has .to_evaluation() method to convert to EvaluationResult
 
-2. EvaluationResult (core/evaluation.py)
+3. EvaluationResult (core/evaluation.py)
    - PRIMARY output schema for ALL evaluations
    - This is the SINGULAR contract for output
    - Contains: metadata, sessions, verdict, summary
    - Methods: to_json(), to_dict()
 
-3. Legacy (DEPRECATED - DO NOT USE):
-   - SequenceResult, SessionResult from result.py
-   - Only kept for backward compatibility
-   - Will be removed in future versions
-
 CORRECT FLOW:
 Adapter.execute() → TestResult → .to_evaluation() → EvaluationResult → JSON
 
-Never use result.py classes in new code. Always use evaluation.py.
+Always use evaluation.py classes for new code.
 =====================================================================
 """
 

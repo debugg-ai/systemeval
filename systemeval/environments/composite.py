@@ -22,7 +22,7 @@ DEPRECATED FEATURES:
 import time
 from typing import Any, Dict, List, Optional
 
-from systemeval.adapters import TestResult, Verdict
+from systemeval.types import TestResult, Verdict
 from systemeval.environments.base import Environment, EnvironmentType, SetupResult
 
 

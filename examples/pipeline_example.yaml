@@ -1,0 +1,64 @@
+---
+# Example systemeval configuration for Django pipeline evaluation
+#
+# This configuration runs full pipeline tests (build → deploy → health → crawl → E2E)
+# for DebuggAI projects.
+#
+# Usage:
+#   systemeval run --config examples/pipeline_example.yaml
+
+framework: pipeline
+
+# Path to Django backend directory
+project_root: /Users/quinnosha/Documents/Github/debugg-ai/full-platform/sentinal/backend
+
+# Adapter-specific configuration
+adapter_config:
+  # Projects to test (by slug or name)
+  projects:
+    - crochet-patterns
+    - test-nextjs-simple
+    - test-vue-vite-simple
+
+  # Max time to wait per project (seconds)
+  timeout: 600
+
+  # Polling interval for status checks (seconds)
+  poll_interval: 15
+
+  # Run webhooks synchronously (blocks until complete)
+  sync_mode: false
+
+  # Skip build phase, use existing containers
+  skip_build: false
+
+# Test filtering
+filters:
+  # Category filter (optional)
+  category: pipeline  # Options: pipeline, build, health, crawl, e2e
+
+# Execution options
+execution:
+  # Verbose output
+  verbose: true
+
+  # Stop on first failure
+  failfast: false
+
+  # Max timeout for entire test run (seconds)
+  timeout: 1800
+
+# Output configuration
+output:
+  # Format: table, json, markdown
+  format: table
+
+  # Save results to file
+  # file: pipeline_results.json
+
+# Pipeline pass criteria (hardcoded in adapter):
+# - build_status == "succeeded"
+# - container_healthy == True
+# - kg_exists == True
+# - kg_pages > 0
+# - e2e_error_rate == 0

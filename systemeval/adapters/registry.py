@@ -137,6 +137,22 @@ def _register_builtin_adapters() -> None:
     except ImportError:
         pass
 
+    # Try to register playwright adapter
+    try:
+        from .playwright_adapter import PlaywrightAdapter
+
+        register_adapter("playwright", PlaywrightAdapter)
+    except ImportError:
+        pass
+
+    # Try to register surfer adapter
+    try:
+        from .surfer_adapter import SurferAdapter
+
+        register_adapter("surfer", SurferAdapter)
+    except ImportError:
+        pass
+
     # Future: Register jest adapter when implemented
     # try:
     #     from .jest_adapter import JestAdapter

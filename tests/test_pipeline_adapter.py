@@ -729,9 +729,10 @@ class TestExecute:
 
         result = adapter.execute()
 
-        assert hasattr(result, "_pipeline_tests")
-        assert hasattr(result, "_pipeline_metrics")
-        assert hasattr(result, "_pipeline_adapter")
+        # Pipeline data is now stored as proper dataclass attributes (not monkey-patched)
+        assert result.pipeline_tests is not None
+        assert result.pipeline_metrics is not None
+        assert result.pipeline_adapter is not None
 
 
 # =============================================================================

@@ -9,10 +9,12 @@ import pytest
 import yaml
 
 from systemeval.config import (
+    AnyEnvironmentConfig,
     CompositeEnvConfig,
     DockerComposeEnvConfig,
     EnvironmentConfig,
     HealthCheckConfig,
+    NgrokEnvConfig,
     PipelineConfig,
     PytestConfig,
     StandaloneEnvConfig,
@@ -20,6 +22,7 @@ from systemeval.config import (
     TestCategory,
     find_config_file,
     load_config,
+    parse_environment_config,
 )
 
 
@@ -161,13 +164,13 @@ class TestLoadConfigHappyPath:
         assert "docker" in config.environments
 
         local_env = config.environments["local"]
-        assert local_env["type"] == "standalone"
-        assert local_env["command"] == "npm start"
-        assert local_env["default"] is True
+        assert local_env.type == "standalone"
+        assert local_env.command == "npm start"
+        assert local_env.default is True
 
         docker_env = config.environments["docker"]
-        assert docker_env["type"] == "docker-compose"
-        assert docker_env["services"] == ["api", "db"]
+        assert docker_env.type == "docker-compose"
+        assert docker_env.services == ["api", "db"]
 
     def test_load_config_resolves_working_dir_relative_to_config(self, tmp_path: Path):
         """Test that working_dir in environments is resolved relative to config file."""
@@ -184,7 +187,7 @@ class TestLoadConfigHappyPath:
 
         # working_dir should be resolved to absolute path
         expected_working_dir = str(tmp_path / "backend")
-        assert config.environments["backend"]["working_dir"] == expected_working_dir
+        assert config.environments["backend"].working_dir == expected_working_dir
 
     def test_load_config_preserves_absolute_working_dir(self, tmp_path: Path):
         """Test that absolute working_dir is preserved unchanged."""
@@ -199,7 +202,7 @@ class TestLoadConfigHappyPath:
 
         config = load_config(config_file)
 
-        assert config.environments["backend"]["working_dir"] == "/absolute/path/to/backend"
+        assert config.environments["backend"].working_dir == "/absolute/path/to/backend"
 
     def test_load_config_with_empty_categories(self, tmp_path: Path):
         """Test loading config with empty category definitions."""
@@ -602,9 +605,9 @@ class TestEnvironmentConfigParsing:
         config = load_config(config_file)
 
         docker_env = config.environments["docker"]
-        assert docker_env["health_check"]["service"] == "django"
-        assert docker_env["health_check"]["port"] == 8002
-        assert docker_env["health_check"]["timeout"] == 60
+        assert docker_env.health_check.service == "django"
+        assert docker_env.health_check.port == 8002
+        assert docker_env.health_check.timeout == 60
 
     def test_multiple_environments_mixed_types(self, tmp_path: Path):
         """Test loading multiple environments with different types."""
@@ -638,16 +641,16 @@ class TestEnvironmentConfigParsing:
         assert len(config.environments) == 3
 
         local = config.environments["local"]
-        assert local["type"] == "standalone"
-        assert local["env"]["NODE_ENV"] == "development"
+        assert local.type == "standalone"
+        assert local.env["NODE_ENV"] == "development"
 
         docker = config.environments["docker"]
-        assert docker["type"] == "docker-compose"
-        assert len(docker["services"]) == 3
+        assert docker.type == "docker-compose"
+        assert len(docker.services) == 3
 
         full = config.environments["full"]
-        assert full["type"] == "composite"
-        assert full["depends_on"] == ["local", "docker"]
+        assert full.type == "composite"
+        assert full.depends_on == ["local", "docker"]
 
     def test_environment_with_default_flag(self, tmp_path: Path):
         """Test loading environment with default flag."""
@@ -665,8 +668,8 @@ class TestEnvironmentConfigParsing:
 
         config = load_config(config_file)
 
-        assert config.environments["local"]["default"] is True
-        assert config.environments["docker"]["default"] is False
+        assert config.environments["local"].default is True
+        assert config.environments["docker"].default is False
 
 
 class TestEdgeCases:
@@ -752,7 +755,7 @@ class TestEdgeCases:
         config = load_config(config_file)
 
         expected = str(tmp_path / "path with spaces/and-dashes/under_scores")
-        assert config.environments["local"]["working_dir"] == expected
+        assert config.environments["local"].working_dir == expected
 
     def test_load_config_unicode_content(self, tmp_path: Path):
         """Test loading config with unicode content."""
@@ -772,7 +775,7 @@ class TestEdgeCases:
         assert config.project_name == "projet-test"
 
     def test_load_config_numeric_strings(self, tmp_path: Path):
-        """Test loading config with numeric values as strings."""
+        """Test loading config with numeric values as strings - Pydantic coerces to int."""
         config_file = tmp_path / "systemeval.yaml"
         config_file.write_text(dedent("""
             adapter: pytest
@@ -784,5 +787,5 @@ class TestEdgeCases:
 
         config = load_config(config_file)
 
-        # Port should be parsed as string since it's quoted
-        assert config.environments["local"]["port"] == "3000"
+        # Port is typed as int in StandaloneEnvConfig, so Pydantic coerces "3000" to 3000
+        assert config.environments["local"].port == 3000

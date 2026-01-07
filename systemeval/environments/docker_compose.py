@@ -8,13 +8,14 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from systemeval.adapters import TestResult
+from systemeval.types import TestResult
 from systemeval.environments.base import Environment, EnvironmentType, SetupResult
 from systemeval.environments.executor import DockerExecutor
 from systemeval.plugins.docker_manager import (
     DockerResourceManager,
     HealthCheckConfig,
 )
+from systemeval.utils.commands import build_test_command
 from systemeval.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -212,40 +213,7 @@ class DockerComposeEnvironment(Environment):
         verbose: bool,
     ) -> Union[str, List[str]]:
         """Build the test command with optional filters."""
-        # Handle list of commands
-        if isinstance(self.test_command, list):
-            return self.test_command
-
-        # Handle single command string
-        cmd = self.test_command
-
-        # Check if it's a script (starts with ./ or /)
-        if cmd.startswith("./") or cmd.startswith("/"):
-            # For scripts, pass filters as environment or arguments
-            if suite:
-                cmd = f"SUITE={suite} {cmd}"
-            if category:
-                cmd = f"CATEGORY={category} {cmd}"
-            if verbose:
-                cmd = f"{cmd} -v"
-            return cmd
-
-        # For standard test frameworks, add flags
-        if "pytest" in cmd:
-            if suite:
-                cmd = f"{cmd} -m {suite}"
-            if category:
-                cmd = f"{cmd} -m {category}"
-            if verbose and "-v" not in cmd:
-                cmd = f"{cmd} -v"
-        elif "npm test" in cmd or "jest" in cmd:
-            if suite:
-                cmd = f"{cmd} --testPathPattern={suite}"
-        elif "playwright" in cmd:
-            if suite:
-                cmd = f"{cmd} --grep {suite}"
-
-        return cmd
+        return build_test_command(self.test_command, suite, category, verbose)
 
     def _cleanup(self) -> None:
         """Internal cleanup for signal handlers."""

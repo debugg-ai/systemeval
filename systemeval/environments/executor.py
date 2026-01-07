@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from systemeval.adapters import TestResult
+from systemeval.types import TestResult
 from systemeval.utils.logging import get_logger
 
 logger = get_logger(__name__)

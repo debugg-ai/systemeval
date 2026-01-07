@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, Optional
 
-from systemeval.adapters import TestResult
+from systemeval.types import TestResult
 
 
 class EnvironmentType(str, Enum):
@@ -14,6 +14,8 @@ class EnvironmentType(str, Enum):
     STANDALONE = "standalone"
     DOCKER_COMPOSE = "docker-compose"
     COMPOSITE = "composite"
+    NGROK = "ngrok"
+    BROWSER = "browser"
 
 
 @dataclass

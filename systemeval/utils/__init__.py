@@ -1,5 +1,6 @@
 """Utility modules for systemeval."""
 
+from .commands import build_test_command
 from .retry import (
     RetryConfig,
     execute_with_retry,
@@ -9,7 +10,8 @@ from .retry import (
 
 __all__ = [
     "RetryConfig",
-    "retry_with_backoff",
-    "retry_on_condition",
+    "build_test_command",
     "execute_with_retry",
+    "retry_on_condition",
+    "retry_with_backoff",
 ]

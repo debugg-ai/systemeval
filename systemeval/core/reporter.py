@@ -1,6 +1,7 @@
 """Unified output formatting and reporting using rich library."""
 
 import json
+from html import escape as html_escape
 from pathlib import Path
 from typing import Optional
 
@@ -10,6 +11,19 @@ from rich.panel import Panel
 from rich.text import Text
 
 from .evaluation import EvaluationResult, Verdict
+
+
+def _xml_escape(value: str) -> str:
+    """Escape special characters for XML output.
+
+    Escapes the five XML special characters: <, >, &, ", '
+    Uses html.escape with quote=True for <, >, &, " and
+    manually handles single quotes (apostrophes).
+    """
+    # html.escape handles <, >, &, and " when quote=True
+    escaped = html_escape(str(value), quote=True)
+    # Also escape single quotes (apostrophe) for XML
+    return escaped.replace("'", "&apos;")
 
 
 class Reporter:
@@ -149,7 +163,7 @@ class Reporter:
         suite_name = result.metadata.project_name or result.metadata.adapter_type or "Evaluation"
 
         xml_lines.append(
-            f'<testsuites name="{suite_name}" '
+            f'<testsuites name="{_xml_escape(suite_name)}" '
             f'tests="{tests}" failures="{failures}" time="{duration:.3f}">'
         )
 
@@ -158,19 +172,20 @@ class Reporter:
             status = "failure" if session.verdict != Verdict.PASS else "success"
 
             xml_lines.append(
-                f'  <testsuite name="{session.session_name}" '
+                f'  <testsuite name="{_xml_escape(session.session_name)}" '
                 f'tests="{len(session.metrics)}" failures="{len(session.failed_metrics)}" '
                 f'time="{session_duration:.3f}">'
             )
 
             for metric in session.metrics:
-                xml_lines.append(f'    <testcase name="{metric.name}" status="{status}">')
+                xml_lines.append(f'    <testcase name="{_xml_escape(metric.name)}" status="{status}">')
 
                 if not metric.passed:
+                    failure_message = _xml_escape(metric.message or "Failed")
                     xml_lines.append(
-                        f'      <failure message="{metric.message or "Failed"}">'
+                        f'      <failure message="{failure_message}">'
                     )
-                    xml_lines.append(f'Value: {metric.value}')
+                    xml_lines.append(f'Value: {_xml_escape(str(metric.value))}')
                     xml_lines.append('      </failure>')
 
                 xml_lines.append('    </testcase>')

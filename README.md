@@ -1,6 +1,13 @@
 # SystemEval
 
+[![PyPI](https://img.shields.io/pypi/v/systemeval)](https://pypi.org/project/systemeval/)
+[![Python](https://img.shields.io/pypi/pyversions/systemeval)](https://pypi.org/project/systemeval/)
+
 A unified evaluation framework providing objective, deterministic, and traceable test execution across any project.
+
+**Homepage**: [debugg.ai](https://debugg.ai) | **Docs**: [debugg.ai/docs/systemeval](https://debugg.ai/docs/systemeval)
+
+> See [COMMANDMENTS.md](COMMANDMENTS.md) for the core principles and design philosophy.
 
 ## Philosophy
 
@@ -367,6 +374,13 @@ systemeval test --env frontend
 ## Contributing
 
 See the adapter documentation in `systemeval/adapters/README.md` for details on extending SystemEval.
+
+## Links
+
+- **Homepage**: [debugg.ai](https://debugg.ai)
+- **Documentation**: [debugg.ai/docs/systemeval](https://debugg.ai/docs/systemeval)
+- **Repository**: [github.com/debugg-ai/systemeval](https://github.com/debugg-ai/systemeval)
+- **PyPI**: [pypi.org/project/systemeval](https://pypi.org/project/systemeval/)
 
 ## License
 

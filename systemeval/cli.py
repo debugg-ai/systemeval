@@ -11,24 +11,156 @@ from rich.console import Console
 from rich.table import Table
 
 from systemeval.config import SystemEvalConfig, load_config, find_config_file
-from systemeval.adapters import get_adapter, list_adapters as get_available_adapters, TestResult
+from systemeval.adapters import get_adapter, list_adapters as get_available_adapters
+from systemeval.types import (
+    TestResult,
+    TestCommandOptions,
+    BrowserOptions,
+    EnvironmentOptions,
+    ExecutionOptions,
+    OutputOptions,
+    PipelineOptions,
+    TestSelectionOptions,
+)
 from systemeval.plugins.docker import get_environment_type, is_docker_environment
 
 console = Console()
 
 
+def _run_browser_tests(
+    test_config: "SystemEvalConfig",
+    opts: TestCommandOptions,
+) -> "TestResult":
+    """Run browser tests using Playwright or Surfer adapter.
+
+    Args:
+        test_config: Loaded SystemEval configuration.
+        opts: Grouped CLI options for the test command.
+    """
+    from systemeval.environments import BrowserEnvironment
+    from systemeval.adapters import TestResult
+
+    # Extract options from grouped dataclasses
+    browser = opts.browser_opts.browser
+    surfer = opts.browser_opts.surfer
+    tunnel_port = opts.browser_opts.tunnel_port
+    headed = opts.browser_opts.headed
+    category = opts.selection.category
+    verbose = opts.execution.verbose
+    keep_running = opts.environment.keep_running
+    timeout = opts.pipeline.timeout
+    json_output = opts.output.json_output
+
+    # Determine test runner
+    test_runner = "surfer" if surfer else "playwright"
+
+    # Build browser environment config
+    browser_config = {
+        "test_runner": test_runner,
+        "working_dir": str(test_config.project_root.absolute()),
+    }
+
+    # Add tunnel config if port specified
+    if tunnel_port:
+        browser_config["tunnel"] = {"port": tunnel_port}
+
+    # Add adapter-specific config
+    if browser:
+        playwright_conf = test_config.playwright_config
+        if playwright_conf:
+            browser_config["playwright"] = {
+                "config_file": playwright_conf.config_file,
+                "project": playwright_conf.project,
+                "headed": headed or playwright_conf.headed,
+                "timeout": playwright_conf.timeout,
+            }
+        elif headed:
+            browser_config["playwright"] = {"headed": True}
+
+    if surfer:
+        surfer_conf = test_config.surfer_config
+        if surfer_conf:
+            browser_config["surfer"] = {
+                "project_slug": surfer_conf.project_slug,
+                "api_key": surfer_conf.api_key,
+                "api_base_url": surfer_conf.api_base_url,
+                "poll_interval": surfer_conf.poll_interval,
+                "timeout": timeout or surfer_conf.timeout,
+            }
+        else:
+            console.print("[red]Error:[/red] surfer_config not found in systemeval.yaml")
+            console.print("Add a 'surfer:' section with project_slug")
+            return TestResult(
+                passed=0, failed=0, errors=1, skipped=0,
+                duration=0.0, exit_code=2
+            )
+
+    # Create and run browser environment
+    env = BrowserEnvironment("browser-tests", browser_config)
+
+    if not json_output:
+        console.print(f"[bold cyan]Running {test_runner} browser tests[/bold cyan]")
+        if tunnel_port:
+            console.print(f"[dim]Tunnel port: {tunnel_port}[/dim]")
+        console.print()
+
+    try:
+        # Setup (starts tunnel if configured)
+        if tunnel_port:
+            if not json_output:
+                console.print("[dim]Starting ngrok tunnel...[/dim]")
+            setup_result = env.setup()
+            if not setup_result.success:
+                console.print(f"[red]Setup failed:[/red] {setup_result.message}")
+                return TestResult(
+                    passed=0, failed=0, errors=1, skipped=0,
+                    duration=setup_result.duration, exit_code=2
+                )
+
+            if not env.wait_ready(timeout=60):
+                console.print("[red]Error:[/red] Tunnel did not become ready")
+                env.teardown()
+                return TestResult(
+                    passed=0, failed=0, errors=1, skipped=0,
+                    duration=env.timings.startup, exit_code=2
+                )
+
+            if not json_output and env.tunnel_url:
+                console.print(f"[green]Tunnel ready:[/green] {env.tunnel_url}")
+
+        # Run tests
+        if not json_output:
+            console.print("[dim]Running browser tests...[/dim]")
+
+        results = env.run_tests(category=category, verbose=verbose)
+
+        return results
+
+    finally:
+        if not keep_running:
+            env.teardown()
+
+
 def _run_with_environment(
     test_config: "SystemEvalConfig",
-    env_name: Optional[str],
-    suite: Optional[str],
-    category: Optional[str],
-    verbose: bool,
-    keep_running: bool,
-    skip_build: bool,
-    json_output: bool,
+    opts: TestCommandOptions,
 ) -> "TestResult":
-    """Run tests using environment orchestration."""
+    """Run tests using environment orchestration.
+
+    Args:
+        test_config: Loaded SystemEval configuration.
+        opts: Grouped CLI options for the test command.
+    """
     from systemeval.environments import EnvironmentResolver
+
+    # Extract options from grouped dataclasses
+    env_name = opts.environment.env_name
+    suite = opts.selection.suite
+    category = opts.selection.category
+    verbose = opts.execution.verbose
+    keep_running = opts.environment.keep_running
+    skip_build = opts.pipeline.skip_build
+    json_output = opts.output.json_output
 
     # Resolve environment
     resolver = EnvironmentResolver(test_config.environments)
@@ -36,7 +168,6 @@ def _run_with_environment(
     if not test_config.environments:
         console.print("[red]Error:[/red] No environments configured in systemeval.yaml")
         console.print("Add an 'environments' section to your configuration")
-        import sys
         sys.exit(2)
 
     # Get environment name
@@ -44,7 +175,6 @@ def _run_with_environment(
         env_name = resolver.get_default_environment()
         if not env_name:
             console.print("[red]Error:[/red] No default environment found")
-            import sys
             sys.exit(2)
 
     try:
@@ -53,11 +183,9 @@ def _run_with_environment(
         console.print(f"[red]Error:[/red] {e}")
         available = ", ".join(resolver.list_environments().keys())
         console.print(f"Available environments: {available}")
-        import sys
         sys.exit(2)
     except ValueError as e:
         console.print(f"[red]Error:[/red] {e}")
-        import sys
         sys.exit(2)
 
     # Inject skip_build if applicable
@@ -123,10 +251,156 @@ def _run_with_environment(
 
 
 @click.group()
-@click.version_option(version="0.1.4")
+@click.version_option(version=None, package_name="systemeval")
 def main() -> None:
     """SystemEval - Unified test runner CLI."""
     pass
+
+
+def _execute_test_command(
+    test_config: "SystemEvalConfig",
+    opts: TestCommandOptions,
+    config_path: Path,
+) -> None:
+    """Execute the test command with grouped options.
+
+    This is the internal implementation that receives grouped options.
+    The public test() function handles CLI argument parsing and conversion.
+
+    Args:
+        test_config: Loaded SystemEval configuration.
+        opts: Grouped CLI options for the test command.
+        config_path: Path to the configuration file.
+    """
+    # Extract commonly used options
+    verbose = opts.execution.verbose
+    json_output = opts.output.json_output
+    category = opts.selection.category
+    template = opts.output.template
+
+    # Determine execution environment based on env_mode
+    env_mode = opts.environment.env_mode
+    if env_mode == 'docker':
+        environment = "docker"
+    elif env_mode == 'local':
+        environment = "local"
+    else:  # 'auto' (default)
+        environment = get_environment_type()
+
+    if verbose:
+        console.print(f"[dim]Environment: {environment}[/dim]")
+        console.print(f"[dim]Config: {config_path}[/dim]")
+
+    # Handle browser testing mode
+    if opts.browser_opts.browser or opts.browser_opts.surfer:
+        results = _run_browser_tests(test_config=test_config, opts=opts)
+    # Check if using environment-based testing
+    elif opts.environment.env_name or test_config.environments:
+        results = _run_with_environment(test_config=test_config, opts=opts)
+    else:
+        # Legacy adapter-based testing
+        results = _run_legacy_adapter_tests(test_config=test_config, opts=opts)
+
+    # Set category on results for output
+    results.category = category or "default"
+
+    # Output results
+    if json_output:
+        # Check for pipeline adapter's detailed evaluation
+        if hasattr(results, 'pipeline_adapter') and hasattr(results, 'pipeline_tests'):
+            evaluation = results.pipeline_adapter.create_evaluation_result(
+                tests=results.pipeline_tests,
+                results_by_project=results.pipeline_metrics,
+                duration=results.duration,
+            )
+        else:
+            # Convert to unified EvaluationResult schema
+            evaluation = results.to_evaluation(
+                adapter_type=test_config.adapter,
+                project_name=test_config.project_root.name if test_config.project_root else None,
+            )
+            evaluation.finalize()
+        console.print(evaluation.to_json())
+    elif template:
+        from systemeval.templates import render_results
+        output = render_results(results, template_name=template)
+        console.print(output)
+    else:
+        _display_results(results)
+
+    # Exit with appropriate code
+    sys.exit(results.exit_code)
+
+
+def _run_legacy_adapter_tests(
+    test_config: "SystemEvalConfig",
+    opts: TestCommandOptions,
+) -> "TestResult":
+    """Run tests using legacy adapter-based testing.
+
+    Args:
+        test_config: Loaded SystemEval configuration.
+        opts: Grouped CLI options for the test command.
+    """
+    # Extract options
+    category = opts.selection.category
+    app = opts.selection.app
+    file_path = opts.selection.file_path
+    parallel = opts.execution.parallel
+    coverage = opts.execution.coverage
+    failfast = opts.execution.failfast
+    verbose = opts.execution.verbose
+    json_output = opts.output.json_output
+    projects = opts.pipeline.projects
+    timeout = opts.pipeline.timeout
+    poll_interval = opts.pipeline.poll_interval
+    sync = opts.pipeline.sync
+    skip_build = opts.pipeline.skip_build
+
+    # Get adapter
+    try:
+        adapter = get_adapter(test_config.adapter, str(test_config.project_root.absolute()))
+    except (KeyError, ValueError) as e:
+        console.print(f"[red]Error:[/red] {e}")
+        sys.exit(2)
+
+    # Validate environment
+    if not adapter.validate_environment():
+        console.print("[yellow]Warning:[/yellow] Test environment validation failed")
+
+    # Run tests
+    if not json_output:
+        console.print(f"[bold cyan]Running tests with {test_config.adapter} adapter[/bold cyan]")
+        if category:
+            console.print(f"[dim]Category: {category}[/dim]")
+        if app:
+            console.print(f"[dim]App: {app}[/dim]")
+        if file_path:
+            console.print(f"[dim]File: {file_path}[/dim]")
+        console.print()
+
+    # Build execution kwargs
+    exec_kwargs = {
+        "tests": None,  # Will use category/app/file filters in future
+        "parallel": parallel,
+        "coverage": coverage,
+        "failfast": failfast,
+        "verbose": verbose,
+    }
+
+    # Add pipeline-specific options if using pipeline adapter
+    if test_config.adapter == "pipeline":
+        if projects:
+            exec_kwargs["projects"] = list(projects)
+        if timeout:
+            exec_kwargs["timeout"] = timeout
+        if poll_interval:
+            exec_kwargs["poll_interval"] = poll_interval
+        exec_kwargs["sync_mode"] = sync
+        exec_kwargs["skip_build"] = skip_build
+
+    # Execute tests using adapter
+    return adapter.execute(**exec_kwargs)
 
 
 @main.command()
@@ -156,6 +430,11 @@ def main() -> None:
 @click.option('--poll-interval', type=int, help='Seconds between status checks (pipeline adapter)')
 @click.option('--sync', is_flag=True, help='Run webhooks synchronously (pipeline adapter)')
 @click.option('--skip-build', is_flag=True, help='Skip build, use existing containers (pipeline adapter)')
+# Browser testing options
+@click.option('--browser', is_flag=True, help='Run Playwright browser tests')
+@click.option('--surfer', is_flag=True, help='Run DebuggAI Surfer cloud E2E tests')
+@click.option('--tunnel-port', type=int, help='Port to expose via ngrok tunnel for browser tests')
+@click.option('--headed', is_flag=True, help='Run browser tests in headed mode (Playwright only)')
 def test(
     category: Optional[str],
     app: Optional[str],
@@ -178,8 +457,18 @@ def test(
     poll_interval: Optional[int],
     sync: bool,
     skip_build: bool,
+    # Browser testing options
+    browser: bool,
+    surfer: bool,
+    tunnel_port: Optional[int],
+    headed: bool,
 ) -> None:
-    """Run tests using the configured adapter or environment."""
+    """Run tests using the configured adapter or environment.
+
+    This function serves as the CLI entry point, receiving individual parameters
+    from Click decorators. It converts them to grouped TestCommandOptions and
+    delegates to the internal implementation.
+    """
     try:
         # Load configuration
         config_path = Path(config) if config else find_config_file()
@@ -194,106 +483,41 @@ def test(
             console.print(f"[red]Error loading config:[/red] {e}")
             sys.exit(2)
 
-        # Determine execution environment based on env_mode
-        if env_mode == 'docker':
-            environment = "docker"
-        elif env_mode == 'local':
-            environment = "local"
-        else:  # 'auto' (default)
-            environment = get_environment_type()
+        # Convert CLI arguments to grouped options
+        opts = TestCommandOptions.from_cli_args(
+            # Test selection
+            category=category,
+            app=app,
+            file_path=file_path,
+            suite=suite,
+            # Execution
+            parallel=parallel,
+            failfast=failfast,
+            verbose=verbose,
+            coverage=coverage,
+            # Output
+            json_output=json_output,
+            template=template,
+            # Environment
+            env_mode=env_mode,
+            env_name=env_name,
+            config=config,
+            keep_running=keep_running,
+            # Pipeline
+            projects=projects,
+            timeout=timeout,
+            poll_interval=poll_interval,
+            sync=sync,
+            skip_build=skip_build,
+            # Browser
+            browser=browser,
+            surfer=surfer,
+            tunnel_port=tunnel_port,
+            headed=headed,
+        )
 
-        if verbose:
-            console.print(f"[dim]Environment: {environment}[/dim]")
-            console.print(f"[dim]Config: {config_path}[/dim]")
-
-        # Check if using environment-based testing
-        if env_name or test_config.environments:
-            results = _run_with_environment(
-                test_config=test_config,
-                env_name=env_name,
-                suite=suite,
-                category=category,
-                verbose=verbose,
-                keep_running=keep_running,
-                skip_build=skip_build,
-                json_output=json_output,
-            )
-        else:
-            # Legacy adapter-based testing
-            # Get adapter
-            try:
-                adapter = get_adapter(test_config.adapter, str(test_config.project_root.absolute()))
-            except (KeyError, ValueError) as e:
-                console.print(f"[red]Error:[/red] {e}")
-                sys.exit(2)
-
-            # Validate environment
-            if not adapter.validate_environment():
-                console.print(f"[yellow]Warning:[/yellow] Test environment validation failed")
-
-            # Run tests
-            if not json_output:
-                console.print(f"[bold cyan]Running tests with {test_config.adapter} adapter[/bold cyan]")
-                if category:
-                    console.print(f"[dim]Category: {category}[/dim]")
-                if app:
-                    console.print(f"[dim]App: {app}[/dim]")
-                if file_path:
-                    console.print(f"[dim]File: {file_path}[/dim]")
-                console.print()
-
-            # Build execution kwargs
-            exec_kwargs = {
-                "tests": None,  # Will use category/app/file filters in future
-                "parallel": parallel,
-                "coverage": coverage,
-                "failfast": failfast,
-                "verbose": verbose,
-            }
-
-            # Add pipeline-specific options if using pipeline adapter
-            if test_config.adapter == "pipeline":
-                if projects:
-                    exec_kwargs["projects"] = list(projects)
-                if timeout:
-                    exec_kwargs["timeout"] = timeout
-                if poll_interval:
-                    exec_kwargs["poll_interval"] = poll_interval
-                exec_kwargs["sync_mode"] = sync
-                exec_kwargs["skip_build"] = skip_build
-
-            # Execute tests using adapter
-            results = adapter.execute(**exec_kwargs)
-
-        # Set category on results for output
-        results.category = category or "default"
-
-        # Output results
-        if json_output:
-            # Check for pipeline adapter's detailed evaluation
-            if hasattr(results, '_pipeline_adapter') and hasattr(results, '_pipeline_tests'):
-                evaluation = results._pipeline_adapter.create_evaluation_result(
-                    tests=results._pipeline_tests,
-                    results_by_project=results._pipeline_metrics,
-                    duration=results.duration,
-                )
-            else:
-                # Convert to unified EvaluationResult schema
-                evaluation = results.to_evaluation(
-                    adapter_type=test_config.adapter,
-                    project_name=test_config.project_root.name if test_config.project_root else None,
-                )
-                evaluation.finalize()
-            console.print(evaluation.to_json())
-        elif template:
-            from systemeval.templates import render_results
-            output = render_results(results, template_name=template)
-            console.print(output)
-        else:
-            _display_results(results)
-
-        # Exit with appropriate code
-        sys.exit(results.exit_code)
+        # Delegate to internal implementation
+        _execute_test_command(test_config, opts, config_path)
 
     except KeyboardInterrupt:
         console.print("\n[yellow]Test run interrupted[/yellow]")
@@ -459,22 +683,29 @@ def list_environments_cmd(config: Optional[str]) -> None:
         table.add_column("Details", style="dim")
 
         for name, env_config in test_config.environments.items():
-            env_type = env_config.get("type", "standalone")
-            is_default = "Yes" if env_config.get("default", False) else ""
+            env_type = env_config.type
+            is_default = "Yes" if env_config.default else ""
 
-            # Build details string
-            if env_type == "docker-compose":
-                compose_file = env_config.get("compose_file", "docker-compose.yml")
-                services = env_config.get("services", [])
+            # Build details string based on typed config
+            from systemeval.config import (
+                DockerComposeEnvConfig,
+                CompositeEnvConfig,
+                StandaloneEnvConfig,
+            )
+            if isinstance(env_config, DockerComposeEnvConfig):
+                compose_file = env_config.compose_file
+                services = env_config.services
                 details = f"file: {compose_file}"
                 if services:
                     details += f", services: {len(services)}"
-            elif env_type == "composite":
-                deps = env_config.get("depends_on", [])
+            elif isinstance(env_config, CompositeEnvConfig):
+                deps = env_config.depends_on
                 details = f"depends: {', '.join(deps)}"
-            else:
-                cmd = env_config.get("command", "")
+            elif isinstance(env_config, StandaloneEnvConfig):
+                cmd = env_config.command
                 details = cmd[:40] + "..." if len(cmd) > 40 else cmd
+            else:
+                details = ""
 
             table.add_row(name, env_type, is_default, details)
 

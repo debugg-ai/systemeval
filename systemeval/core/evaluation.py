@@ -11,16 +11,11 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
+# Import Verdict from shared types module
+from systemeval.types import Verdict
 
 # Schema version - bump on breaking changes
 SCHEMA_VERSION = "1.0.0"
-
-
-class Verdict(str, Enum):
-    """Binary verdict - deterministic, no subjective interpretation."""
-    PASS = "PASS"
-    FAIL = "FAIL"
-    ERROR = "ERROR"
 
 
 class Severity(str, Enum):

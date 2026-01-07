@@ -79,7 +79,7 @@ class HealthCheckConfig(BaseModel):
 
 class EnvironmentConfig(BaseModel):
     """Base environment configuration."""
-    type: Literal["standalone", "docker-compose", "composite"] = "standalone"
+    type: Literal["standalone", "docker-compose", "composite", "ngrok", "browser"] = "standalone"
     test_command: str = Field(default="", description="Command to run tests")
     working_dir: str = Field(default=".", description="Working directory")
     default: bool = Field(default=False, description="Is this the default environment")
@@ -111,6 +111,89 @@ class CompositeEnvConfig(EnvironmentConfig):
     depends_on: List[str] = Field(default_factory=list, description="Required environments")
 
 
+class NgrokConfig(BaseModel):
+    """Configuration for ngrok tunnel."""
+    auth_token: Optional[str] = Field(default=None, description="Ngrok auth token (or use NGROK_AUTHTOKEN env var)")
+    port: int = Field(default=3000, description="Local port to expose")
+    region: str = Field(default="us", description="Ngrok region (us, eu, ap, au, sa, jp, in)")
+
+
+class NgrokEnvConfig(EnvironmentConfig):
+    """Configuration for ngrok tunnel environment."""
+    type: Literal["ngrok"] = "ngrok"
+    port: int = Field(default=3000, description="Local port to tunnel")
+    auth_token: Optional[str] = Field(default=None, description="Ngrok auth token")
+    region: str = Field(default="us", description="Ngrok region")
+
+
+class PlaywrightConfig(BaseModel):
+    """Playwright adapter configuration."""
+    config_file: str = Field(default="playwright.config.ts", description="Playwright config file")
+    project: Optional[str] = Field(default=None, description="Playwright project (chromium, firefox, webkit)")
+    headed: bool = Field(default=False, description="Run in headed mode")
+    timeout: int = Field(default=30000, description="Test timeout in milliseconds")
+
+
+class SurferConfig(BaseModel):
+    """DebuggAI Surfer adapter configuration."""
+    project_slug: str = Field(..., description="DebuggAI project slug")
+    api_key: Optional[str] = Field(default=None, description="DebuggAI API key (or use DEBUGGAI_API_KEY env var)")
+    api_base_url: str = Field(default="https://api.debugg.ai", description="DebuggAI API base URL")
+    poll_interval: int = Field(default=5, description="Seconds between status checks")
+    timeout: int = Field(default=600, description="Max time to wait for test completion")
+
+
+class BrowserEnvConfig(EnvironmentConfig):
+    """Configuration for browser testing environment (server + tunnel + tests)."""
+    type: Literal["browser"] = "browser"
+    server: Optional[Dict[str, Any]] = Field(default=None, description="Server configuration (StandaloneEnvConfig)")
+    tunnel: Optional[NgrokConfig] = Field(default=None, description="Ngrok tunnel configuration")
+    test_runner: Literal["playwright", "surfer"] = Field(default="playwright", description="Browser test runner to use")
+
+
+# Union type for all environment configurations
+# Used for discriminated union parsing based on 'type' field
+AnyEnvironmentConfig = Union[
+    StandaloneEnvConfig,
+    DockerComposeEnvConfig,
+    CompositeEnvConfig,
+    NgrokEnvConfig,
+    BrowserEnvConfig,
+]
+
+
+def parse_environment_config(name: str, config_dict: Dict[str, Any]) -> AnyEnvironmentConfig:
+    """
+    Parse a raw environment config dict into the appropriate typed model.
+
+    Uses discriminated union based on the 'type' field.
+
+    Args:
+        name: Environment name (for error messages)
+        config_dict: Raw config dictionary from YAML
+
+    Returns:
+        Typed environment config model
+
+    Raises:
+        ValueError: If environment type is unknown
+    """
+    env_type = config_dict.get("type", "standalone")
+
+    if env_type == "standalone":
+        return StandaloneEnvConfig(**config_dict)
+    elif env_type == "docker-compose":
+        return DockerComposeEnvConfig(**config_dict)
+    elif env_type == "composite":
+        return CompositeEnvConfig(**config_dict)
+    elif env_type == "ngrok":
+        return NgrokEnvConfig(**config_dict)
+    elif env_type == "browser":
+        return BrowserEnvConfig(**config_dict)
+    else:
+        raise ValueError(f"Unknown environment type '{env_type}' for environment '{name}'")
+
+
 class PytestConfig(BaseModel):
     """Pytest adapter specific configuration."""
     config_file: Optional[str] = None
@@ -129,15 +212,17 @@ class PipelineConfig(BaseModel):
 
 class SystemEvalConfig(BaseModel):
     """Main configuration model."""
-    adapter: str = Field(default="pytest", description="Test adapter to use (pytest, jest, pipeline)")
+    adapter: str = Field(default="pytest", description="Test adapter to use (pytest, jest, pipeline, playwright, surfer)")
     project_root: Path = Field(default=Path("."), description="Project root directory")
     test_directory: Path = Field(default=Path("tests"), description="Test directory path")
     categories: Dict[str, TestCategory] = Field(default_factory=dict)
     adapter_config: Dict[str, Any] = Field(default_factory=dict, description="Adapter-specific config")
     pytest_config: Optional[PytestConfig] = None
     pipeline_config: Optional[PipelineConfig] = None
+    playwright_config: Optional[PlaywrightConfig] = None
+    surfer_config: Optional[SurferConfig] = None
     project_name: Optional[str] = None
-    environments: Dict[str, Dict[str, Any]] = Field(
+    environments: Dict[str, AnyEnvironmentConfig] = Field(
         default_factory=dict,
         description="Environment configurations for multi-env testing"
     )
@@ -159,17 +244,33 @@ class SystemEvalConfig(BaseModel):
         """Ensure paths are Path objects."""
         return Path(v) if not isinstance(v, Path) else v
 
+    @field_validator("environments", mode="before")
+    @classmethod
+    def validate_environments(cls, v: Any) -> Dict[str, AnyEnvironmentConfig]:
+        """Convert raw dicts to typed environment configs."""
+        if not isinstance(v, dict):
+            return v
+        result: Dict[str, AnyEnvironmentConfig] = {}
+        for name, config in v.items():
+            if isinstance(config, dict):
+                result[name] = parse_environment_config(name, config)
+            else:
+                result[name] = config
+        return result
+
     @model_validator(mode="after")
     def validate_composite_deps(self) -> "SystemEvalConfig":
         """Validate that composite environment dependencies exist."""
         for name, env_config in self.environments.items():
-            if env_config.get("type") == "composite":
-                deps = env_config.get("depends_on", [])
-                for dep in deps:
-                    if dep not in self.environments:
-                        raise ValueError(
-                            f"Environment '{name}' depends on '{dep}' which is not defined"
-                        )
+            if env_config.type == "composite":
+                # CompositeEnvConfig has depends_on attribute
+                if isinstance(env_config, CompositeEnvConfig):
+                    deps = env_config.depends_on
+                    for dep in deps:
+                        if dep not in self.environments:
+                            raise ValueError(
+                                f"Environment '{name}' depends on '{dep}' which is not defined"
+                            )
         return self
 
 
@@ -253,6 +354,20 @@ def load_config(config_path: Path) -> SystemEvalConfig:
             # Also store in adapter_config for adapter access
             normalized["adapter_config"] = {**normalized.get("adapter_config", {}), **pipeline_conf}
 
+    # Extract playwright-specific config
+    if "playwright" in raw_config:
+        playwright_conf = raw_config["playwright"]
+        if isinstance(playwright_conf, dict):
+            normalized["playwright_config"] = PlaywrightConfig(**playwright_conf)
+            normalized["adapter_config"] = {**normalized.get("adapter_config", {}), **playwright_conf}
+
+    # Extract surfer-specific config
+    if "surfer" in raw_config:
+        surfer_conf = raw_config["surfer"]
+        if isinstance(surfer_conf, dict):
+            normalized["surfer_config"] = SurferConfig(**surfer_conf)
+            normalized["adapter_config"] = {**normalized.get("adapter_config", {}), **surfer_conf}
+
     # Convert nested dicts to TestCategory objects
     if "categories" in raw_config:
         categories = {}
@@ -263,16 +378,24 @@ def load_config(config_path: Path) -> SystemEvalConfig:
                 categories[name] = TestCategory()
         normalized["categories"] = categories
 
-    # Extract environments configuration
+    # Extract environments configuration and parse into typed models
     if "environments" in raw_config:
-        environments = raw_config["environments"]
-        if isinstance(environments, dict):
-            # Inject working_dir relative to config file if not absolute
-            for name, env_config in environments.items():
+        environments_raw = raw_config["environments"]
+        if isinstance(environments_raw, dict):
+            parsed_environments: Dict[str, AnyEnvironmentConfig] = {}
+            for name, env_config in environments_raw.items():
                 if isinstance(env_config, dict):
+                    # Inject working_dir relative to config file if not absolute
                     working_dir = env_config.get("working_dir", ".")
                     if not Path(working_dir).is_absolute():
                         env_config["working_dir"] = str(config_path.parent / working_dir)
-            normalized["environments"] = environments
+                    # Parse into typed model
+                    parsed_environments[name] = parse_environment_config(name, env_config)
+                else:
+                    # Default to standalone if env_config is None or empty
+                    parsed_environments[name] = StandaloneEnvConfig(
+                        working_dir=str(config_path.parent)
+                    )
+            normalized["environments"] = parsed_environments
 
     return SystemEvalConfig(**normalized)
