@@ -3,7 +3,37 @@ Command building utilities for test execution.
 
 Provides shared logic for constructing test commands across different environments.
 """
-from typing import List, Optional, Union
+import os
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Generator, List, Optional, Union
+
+
+@contextmanager
+def working_directory(path: Union[str, Path]) -> Generator[None, None, None]:
+    """Context manager to temporarily change the working directory.
+
+    Safely changes to the specified directory and restores the original
+    directory when exiting the context, even if an exception occurs.
+
+    Args:
+        path: Directory path to change to
+
+    Yields:
+        None
+
+    Example:
+        with working_directory("/path/to/project"):
+            # Code runs in /path/to/project
+            result = run_tests()
+        # Original directory restored
+    """
+    original_dir = os.getcwd()
+    try:
+        os.chdir(path)
+        yield
+    finally:
+        os.chdir(original_dir)
 
 
 def build_test_command(

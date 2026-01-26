@@ -137,6 +137,10 @@ class TestItem:
     path: str
     markers: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
+    # Location info (optional, for parity with TypeScript)
+    line: Optional[int] = None
+    column: Optional[int] = None
+    suite: Optional[str] = None
 
 
 @dataclass
@@ -149,6 +153,9 @@ class TestFailure:
     traceback: Optional[str] = None
     duration: float = 0.0
     metadata: Dict[str, Any] = field(default_factory=dict)
+    # Assertion details (optional, for parity with TypeScript)
+    expected: Optional[Any] = None
+    actual: Optional[Any] = None
 
 
 @dataclass
@@ -403,6 +410,20 @@ class BrowserOptions:
 
 
 @dataclass
+class MultiProjectOptions:
+    """Options for multi-project execution (v2.0 config)."""
+
+    subprojects: Tuple[str, ...] = field(default_factory=tuple)
+    """Specific subprojects to run (by name). Empty = run all enabled."""
+
+    tags: Tuple[str, ...] = field(default_factory=tuple)
+    """Only run subprojects with these tags."""
+
+    exclude_tags: Tuple[str, ...] = field(default_factory=tuple)
+    """Exclude subprojects with these tags."""
+
+
+@dataclass
 class TestCommandOptions:
     """
     Aggregated options for the test command.
@@ -428,6 +449,9 @@ class TestCommandOptions:
 
     browser_opts: BrowserOptions = field(default_factory=BrowserOptions)
     """Browser testing options (browser, surfer, tunnel_port, headed)."""
+
+    multi_project: MultiProjectOptions = field(default_factory=MultiProjectOptions)
+    """Multi-project options (subprojects, tags, exclude_tags)."""
 
     @classmethod
     def from_cli_args(
@@ -461,6 +485,10 @@ class TestCommandOptions:
         surfer: bool = False,
         tunnel_port: Optional[int] = None,
         headed: bool = False,
+        # Multi-project
+        subprojects: Tuple[str, ...] = (),
+        tags: Tuple[str, ...] = (),
+        exclude_tags: Tuple[str, ...] = (),
     ) -> "TestCommandOptions":
         """
         Create TestCommandOptions from individual CLI arguments.
@@ -503,5 +531,10 @@ class TestCommandOptions:
                 surfer=surfer,
                 tunnel_port=tunnel_port,
                 headed=headed,
+            ),
+            multi_project=MultiProjectOptions(
+                subprojects=subprojects,
+                tags=tags,
+                exclude_tags=exclude_tags,
             ),
         )

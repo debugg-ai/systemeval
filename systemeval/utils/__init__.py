@@ -1,6 +1,6 @@
 """Utility modules for systemeval."""
 
-from .commands import build_test_command
+from .commands import build_test_command, working_directory
 from .retry import (
     RetryConfig,
     execute_with_retry,
@@ -14,4 +14,5 @@ __all__ = [
     "execute_with_retry",
     "retry_on_condition",
     "retry_with_backoff",
+    "working_directory",
 ]

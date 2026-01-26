@@ -789,3 +789,451 @@ class TestEdgeCases:
 
         # Port is typed as int in StandaloneEnvConfig, so Pydantic coerces "3000" to 3000
         assert config.environments["local"].port == 3000
+
+
+# ============================================================================
+# V2.0 Multi-Project Configuration Tests
+# ============================================================================
+
+
+class TestV2MultiProjectConfig:
+    """Tests for v2.0 multi-project configuration support."""
+
+    def test_load_v2_config_with_subprojects(self, tmp_path: Path):
+        """Test loading a v2.0 config with subprojects."""
+        config_file = tmp_path / "systemeval.yaml"
+        config_file.write_text(dedent("""
+            version: "2.0"
+            project_root: .
+
+            defaults:
+              timeout: 300
+
+            subprojects:
+              - name: backend
+                path: backend
+                adapter: pytest
+                env:
+                  DJANGO_SETTINGS_MODULE: config.settings.test
+                enabled: true
+
+              - name: frontend
+                path: app
+                adapter: vitest
+                pre_commands:
+                  - npm install
+                tags:
+                  - unit
+                  - frontend
+        """).strip())
+
+        config = load_config(config_file)
+
+        assert config.version == "2.0"
+        assert config.is_multi_project is True
+        assert len(config.subprojects) == 2
+
+        # Check backend subproject
+        backend = config.get_subproject("backend")
+        assert backend is not None
+        assert backend.name == "backend"
+        assert backend.path == "backend"
+        assert backend.adapter == "pytest"
+        assert backend.env["DJANGO_SETTINGS_MODULE"] == "config.settings.test"
+        assert backend.enabled is True
+
+        # Check frontend subproject
+        frontend = config.get_subproject("frontend")
+        assert frontend is not None
+        assert frontend.name == "frontend"
+        assert frontend.path == "app"
+        assert frontend.adapter == "vitest"
+        assert frontend.pre_commands == ["npm install"]
+        assert "unit" in frontend.tags
+        assert "frontend" in frontend.tags
+
+    def test_load_v2_config_with_defaults(self, tmp_path: Path):
+        """Test v2.0 config defaults are properly parsed."""
+        config_file = tmp_path / "systemeval.yaml"
+        config_file.write_text(dedent("""
+            version: "2.0"
+
+            defaults:
+              timeout: 600
+              parallel: true
+              coverage: true
+
+            subprojects:
+              - name: tests
+                path: tests
+                adapter: pytest
+        """).strip())
+
+        config = load_config(config_file)
+
+        assert config.defaults is not None
+        assert config.defaults.timeout == 600
+        assert config.defaults.parallel is True
+        assert config.defaults.coverage is True
+
+    def test_v2_config_get_effective_timeout(self, tmp_path: Path):
+        """Test effective timeout resolution with subproject override."""
+        config_file = tmp_path / "systemeval.yaml"
+        config_file.write_text(dedent("""
+            version: "2.0"
+
+            defaults:
+              timeout: 300
+
+            subprojects:
+              - name: fast-tests
+                path: fast
+                adapter: pytest
+                timeout: 60
+
+              - name: slow-tests
+                path: slow
+                adapter: pytest
+        """).strip())
+
+        config = load_config(config_file)
+
+        fast = config.get_subproject("fast-tests")
+        slow = config.get_subproject("slow-tests")
+
+        # Fast tests have explicit timeout override
+        assert config.get_effective_timeout(fast) == 60
+
+        # Slow tests inherit from defaults
+        assert config.get_effective_timeout(slow) == 300
+
+    def test_v2_config_get_enabled_subprojects(self, tmp_path: Path):
+        """Test filtering subprojects by enabled status."""
+        config_file = tmp_path / "systemeval.yaml"
+        config_file.write_text(dedent("""
+            version: "2.0"
+
+            subprojects:
+              - name: backend
+                path: backend
+                adapter: pytest
+                enabled: true
+
+              - name: e2e
+                path: e2e
+                adapter: playwright
+                enabled: false
+                tags:
+                  - e2e
+
+              - name: frontend
+                path: app
+                adapter: vitest
+                enabled: true
+                tags:
+                  - frontend
+        """).strip())
+
+        config = load_config(config_file)
+
+        enabled = config.get_enabled_subprojects()
+        assert len(enabled) == 2
+        assert all(sp.enabled for sp in enabled)
+        assert "e2e" not in [sp.name for sp in enabled]
+
+    def test_v2_config_filter_by_tags(self, tmp_path: Path):
+        """Test filtering subprojects by tags."""
+        config_file = tmp_path / "systemeval.yaml"
+        config_file.write_text(dedent("""
+            version: "2.0"
+
+            subprojects:
+              - name: backend-unit
+                path: backend
+                adapter: pytest
+                tags:
+                  - unit
+                  - backend
+
+              - name: frontend-unit
+                path: app
+                adapter: vitest
+                tags:
+                  - unit
+                  - frontend
+
+              - name: e2e
+                path: e2e
+                adapter: playwright
+                tags:
+                  - e2e
+        """).strip())
+
+        config = load_config(config_file)
+
+        # Filter by unit tag
+        unit_tests = config.get_enabled_subprojects(tags=["unit"])
+        assert len(unit_tests) == 2
+        assert all("unit" in sp.tags for sp in unit_tests)
+
+        # Filter by backend tag
+        backend_tests = config.get_enabled_subprojects(tags=["backend"])
+        assert len(backend_tests) == 1
+        assert backend_tests[0].name == "backend-unit"
+
+    def test_v2_config_filter_by_names(self, tmp_path: Path):
+        """Test filtering subprojects by names."""
+        config_file = tmp_path / "systemeval.yaml"
+        config_file.write_text(dedent("""
+            version: "2.0"
+
+            subprojects:
+              - name: backend
+                path: backend
+                adapter: pytest
+              - name: frontend
+                path: app
+                adapter: vitest
+              - name: e2e
+                path: e2e
+                adapter: playwright
+        """).strip())
+
+        config = load_config(config_file)
+
+        # Filter by specific names
+        selected = config.get_enabled_subprojects(names=["backend", "frontend"])
+        assert len(selected) == 2
+        assert set(sp.name for sp in selected) == {"backend", "frontend"}
+
+    def test_v2_config_backward_compat_with_legacy_fields(self, tmp_path: Path):
+        """Test v2.0 config can coexist with legacy v1.0 fields."""
+        config_file = tmp_path / "systemeval.yaml"
+        config_file.write_text(dedent("""
+            version: "2.0"
+
+            # Legacy v1.0 fields still work
+            adapter: pytest
+            categories:
+              unit:
+                description: Unit tests
+                markers:
+                  - unit
+
+            # V2.0 multi-project
+            subprojects:
+              - name: backend
+                path: backend
+                adapter: pytest
+        """).strip())
+
+        config = load_config(config_file)
+
+        # V2.0 features work
+        assert config.is_multi_project is True
+        assert len(config.subprojects) == 1
+
+        # Legacy fields still accessible
+        assert config.adapter == "pytest"
+        assert "unit" in config.categories
+
+    def test_v1_config_is_not_multi_project(self, tmp_path: Path):
+        """Test v1.0 config is not detected as multi-project."""
+        config_file = tmp_path / "systemeval.yaml"
+        config_file.write_text(dedent("""
+            adapter: pytest
+            test_directory: tests
+        """).strip())
+
+        config = load_config(config_file)
+
+        assert config.version == "1.0"
+        assert config.is_multi_project is False
+        assert len(config.subprojects) == 0
+
+
+class TestSubprojectConfigValidation:
+    """Tests for SubprojectConfig validation."""
+
+    def test_subproject_name_validation_valid(self):
+        """Test valid subproject names are accepted."""
+        from systemeval.config import SubprojectConfig
+
+        valid_names = ["backend", "frontend", "e2e-tests", "unit_tests", "app123"]
+        for name in valid_names:
+            sp = SubprojectConfig(name=name, path=".")
+            assert sp.name == name
+
+    def test_subproject_name_validation_invalid(self):
+        """Test invalid subproject names are rejected."""
+        from systemeval.config import SubprojectConfig
+
+        invalid_names = ["", "123start", "-invalid", "_invalid", "has space", "has.dot"]
+        for name in invalid_names:
+            with pytest.raises(ValueError):
+                SubprojectConfig(name=name, path=".")
+
+    def test_subproject_duplicate_names_rejected(self, tmp_path: Path):
+        """Test duplicate subproject names are rejected."""
+        config_file = tmp_path / "systemeval.yaml"
+        config_file.write_text(dedent("""
+            version: "2.0"
+
+            subprojects:
+              - name: backend
+                path: backend1
+                adapter: pytest
+              - name: backend
+                path: backend2
+                adapter: pytest
+        """).strip())
+
+        with pytest.raises(ValueError) as exc_info:
+            load_config(config_file)
+
+        assert "Duplicate subproject names" in str(exc_info.value)
+
+
+class TestDefaultsConfig:
+    """Tests for DefaultsConfig model."""
+
+    def test_defaults_config_defaults(self):
+        """Test DefaultsConfig has sensible defaults."""
+        from systemeval.config import DefaultsConfig
+
+        defaults = DefaultsConfig()
+
+        assert defaults.timeout == 300
+        assert defaults.parallel is False
+        assert defaults.coverage is False
+        assert defaults.verbose is False
+        assert defaults.failfast is False
+
+    def test_defaults_config_custom_values(self):
+        """Test DefaultsConfig accepts custom values."""
+        from systemeval.config import DefaultsConfig
+
+        defaults = DefaultsConfig(
+            timeout=600,
+            parallel=True,
+            coverage=True,
+            verbose=True,
+            failfast=True,
+        )
+
+        assert defaults.timeout == 600
+        assert defaults.parallel is True
+        assert defaults.coverage is True
+
+
+class TestMultiProjectResultModels:
+    """Tests for SubprojectResult and MultiProjectResult models."""
+
+    def test_subproject_result_defaults(self):
+        """Test SubprojectResult has sensible defaults."""
+        from systemeval.config import SubprojectResult
+
+        result = SubprojectResult(name="backend", adapter="pytest")
+
+        assert result.name == "backend"
+        assert result.adapter == "pytest"
+        assert result.passed == 0
+        assert result.failed == 0
+        assert result.status == "SKIP"
+
+    def test_multi_project_result_calculate_totals(self):
+        """Test MultiProjectResult calculates totals correctly."""
+        from systemeval.config import MultiProjectResult, SubprojectResult
+
+        result = MultiProjectResult(
+            subprojects=[
+                SubprojectResult(name="backend", adapter="pytest", passed=10, failed=2, status="FAIL"),
+                SubprojectResult(name="frontend", adapter="vitest", passed=20, failed=0, status="PASS"),
+                SubprojectResult(name="e2e", adapter="playwright", passed=5, failed=0, status="PASS"),
+            ]
+        )
+
+        result.calculate_totals()
+
+        assert result.total_passed == 35
+        assert result.total_failed == 2
+        assert result.verdict == "FAIL"  # One subproject failed
+
+    def test_multi_project_result_all_pass(self):
+        """Test MultiProjectResult verdict when all pass."""
+        from systemeval.config import MultiProjectResult, SubprojectResult
+
+        result = MultiProjectResult(
+            subprojects=[
+                SubprojectResult(name="backend", adapter="pytest", passed=10, failed=0, status="PASS"),
+                SubprojectResult(name="frontend", adapter="vitest", passed=20, failed=0, status="PASS"),
+            ]
+        )
+
+        result.calculate_totals()
+
+        assert result.verdict == "PASS"
+
+    def test_multi_project_result_error_verdict(self):
+        """Test MultiProjectResult verdict when one has error."""
+        from systemeval.config import MultiProjectResult, SubprojectResult
+
+        result = MultiProjectResult(
+            subprojects=[
+                SubprojectResult(name="backend", adapter="pytest", passed=10, status="PASS"),
+                SubprojectResult(name="frontend", adapter="vitest", status="ERROR", error_message="npm install failed"),
+            ]
+        )
+
+        result.calculate_totals()
+
+        assert result.verdict == "ERROR"
+
+    def test_multi_project_result_to_json(self):
+        """Test MultiProjectResult JSON serialization."""
+        from systemeval.config import MultiProjectResult, SubprojectResult
+
+        result = MultiProjectResult(
+            subprojects=[
+                SubprojectResult(name="backend", adapter="pytest", passed=10, failed=1, status="FAIL"),
+            ]
+        )
+        result.calculate_totals()
+
+        json_dict = result.to_json_dict()
+
+        assert json_dict["verdict"] == "FAIL"
+        assert json_dict["total_passed"] == 10
+        assert json_dict["total_failed"] == 1
+        assert len(json_dict["subprojects"]) == 1
+        assert json_dict["subprojects"][0]["name"] == "backend"
+
+
+class TestConfigVersionValidation:
+    """Tests for config version validation."""
+
+    def test_invalid_version_rejected(self, tmp_path: Path):
+        """Test invalid config version is rejected."""
+        config_file = tmp_path / "systemeval.yaml"
+        config_file.write_text(dedent("""
+            version: "3.0"
+            adapter: pytest
+        """).strip())
+
+        with pytest.raises(ValueError) as exc_info:
+            load_config(config_file)
+
+        assert "Invalid version" in str(exc_info.value)
+        assert "3.0" in str(exc_info.value)
+
+    def test_valid_versions_accepted(self, tmp_path: Path):
+        """Test valid config versions are accepted."""
+        for version in ["1.0", "2.0"]:
+            config_file = tmp_path / "systemeval.yaml"
+            config_file.write_text(f"""
+version: "{version}"
+adapter: pytest
+""".strip())
+
+            config = load_config(config_file)
+            assert config.version == version

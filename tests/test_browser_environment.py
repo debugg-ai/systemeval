@@ -82,7 +82,7 @@ class TestBrowserEnvironmentInit:
 
         assert env._adapter is not None
         assert env._adapter.config_file == "e2e.config.ts"
-        assert env._adapter.project == "chromium"
+        assert env._adapter.playwright_project == "chromium"
         assert env._adapter.headed
 
     def test_init_creates_surfer_adapter(self, tmp_path, monkeypatch):

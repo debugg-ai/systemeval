@@ -1,144 +1,273 @@
 """
 SystemEval CLI - Unified test runner with framework-agnostic adapters.
 """
+import os
+import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Optional
 
 import click
-import yaml
 from rich.console import Console
 from rich.table import Table
 
-from systemeval.config import SystemEvalConfig, load_config, find_config_file
-from systemeval.adapters import get_adapter, list_adapters as get_available_adapters
+from systemeval.config import (
+    SystemEvalConfig,
+    load_config,
+    find_config_file,
+    SubprojectConfig,
+    SubprojectResult,
+    MultiProjectResult,
+    get_subproject_absolute_path,
+)
+from systemeval.adapters import get_adapter
 from systemeval.types import (
+    AdapterConfig,
     TestResult,
     TestCommandOptions,
-    BrowserOptions,
-    EnvironmentOptions,
-    ExecutionOptions,
-    OutputOptions,
-    PipelineOptions,
-    TestSelectionOptions,
 )
-from systemeval.plugins.docker import get_environment_type, is_docker_environment
+from systemeval.utils.docker import get_environment_type
+from systemeval.cli_helpers import run_browser_tests, run_multi_project_tests
+
+# Import modular command registration functions
+from systemeval.cli.commands import (
+    register_config_commands,
+    register_list_commands,
+    e2e,
+)
+from systemeval.cli.formatters import create_formatter
 
 console = Console()
 
-
-def _run_browser_tests(
-    test_config: "SystemEvalConfig",
+def _run_single_subproject(
+    root_config: "SystemEvalConfig",
+    subproject: "SubprojectConfig",
     opts: TestCommandOptions,
-) -> "TestResult":
-    """Run browser tests using Playwright or Surfer adapter.
+) -> "SubprojectResult":
+    """Run tests for a single subproject.
 
     Args:
-        test_config: Loaded SystemEval configuration.
-        opts: Grouped CLI options for the test command.
+        root_config: Root SystemEval configuration.
+        subproject: The subproject configuration to run.
+        opts: Grouped CLI options.
+
+    Returns:
+        SubprojectResult with test results for this subproject.
     """
-    from systemeval.environments import BrowserEnvironment
-    from systemeval.adapters import TestResult
-
-    # Extract options from grouped dataclasses
-    browser = opts.browser_opts.browser
-    surfer = opts.browser_opts.surfer
-    tunnel_port = opts.browser_opts.tunnel_port
-    headed = opts.browser_opts.headed
-    category = opts.selection.category
     verbose = opts.execution.verbose
-    keep_running = opts.environment.keep_running
-    timeout = opts.pipeline.timeout
     json_output = opts.output.json_output
+    failfast = opts.execution.failfast
+    parallel = opts.execution.parallel
+    coverage = opts.execution.coverage
 
-    # Determine test runner
-    test_runner = "surfer" if surfer else "playwright"
-
-    # Build browser environment config
-    browser_config = {
-        "test_runner": test_runner,
-        "working_dir": str(test_config.project_root.absolute()),
-    }
-
-    # Add tunnel config if port specified
-    if tunnel_port:
-        browser_config["tunnel"] = {"port": tunnel_port}
-
-    # Add adapter-specific config
-    if browser:
-        playwright_conf = test_config.playwright_config
-        if playwright_conf:
-            browser_config["playwright"] = {
-                "config_file": playwright_conf.config_file,
-                "project": playwright_conf.project,
-                "headed": headed or playwright_conf.headed,
-                "timeout": playwright_conf.timeout,
-            }
-        elif headed:
-            browser_config["playwright"] = {"headed": True}
-
-    if surfer:
-        surfer_conf = test_config.surfer_config
-        if surfer_conf:
-            browser_config["surfer"] = {
-                "project_slug": surfer_conf.project_slug,
-                "api_key": surfer_conf.api_key,
-                "api_base_url": surfer_conf.api_base_url,
-                "poll_interval": surfer_conf.poll_interval,
-                "timeout": timeout or surfer_conf.timeout,
-            }
-        else:
-            console.print("[red]Error:[/red] surfer_config not found in systemeval.yaml")
-            console.print("Add a 'surfer:' section with project_slug")
-            return TestResult(
-                passed=0, failed=0, errors=1, skipped=0,
-                duration=0.0, exit_code=2
-            )
-
-    # Create and run browser environment
-    env = BrowserEnvironment("browser-tests", browser_config)
+    sp_path = get_subproject_absolute_path(root_config, subproject)
 
     if not json_output:
-        console.print(f"[bold cyan]Running {test_runner} browser tests[/bold cyan]")
-        if tunnel_port:
-            console.print(f"[dim]Tunnel port: {tunnel_port}[/dim]")
-        console.print()
+        console.print(f"[bold]▶ {subproject.name}[/bold] ({subproject.adapter})")
+
+    # Check if subproject path exists
+    if not sp_path.exists():
+        if not json_output:
+            console.print(f"  [red]✗ Path not found: {sp_path}[/red]")
+        return SubprojectResult(
+            name=subproject.name,
+            adapter=subproject.adapter,
+            status="ERROR",
+            error_message=f"Subproject path not found: {sp_path}",
+        )
+
+    # Run pre_commands if defined
+    if subproject.pre_commands:
+        for cmd in subproject.pre_commands:
+            if verbose and not json_output:
+                console.print(f"  [dim]Running: {cmd}[/dim]")
+            try:
+                subprocess.run(
+                    cmd,
+                    shell=True,
+                    cwd=str(sp_path),
+                    check=True,
+                    capture_output=not verbose,
+                    env={**os.environ, **subproject.env},
+                )
+            except subprocess.CalledProcessError as e:
+                if not json_output:
+                    console.print(f"  [red]✗ Pre-command failed: {cmd}[/red]")
+                return SubprojectResult(
+                    name=subproject.name,
+                    adapter=subproject.adapter,
+                    status="ERROR",
+                    error_message=f"Pre-command failed: {cmd}",
+                )
+
+    # Get adapter for this subproject
+    try:
+        # Create adapter config with subproject settings
+        adapter_config = AdapterConfig(
+            project_root=str(sp_path),
+            test_directory=subproject.test_directory,
+            parallel=parallel,
+            coverage=coverage,
+            timeout=root_config.get_effective_timeout(subproject),
+            extra={
+                "config_file": subproject.config_file,
+                **subproject.options,
+            },
+        )
+
+        # Get adapter - handle special cases
+        adapter_name = subproject.adapter
+        if adapter_name == "pytest-django":
+            adapter_name = "pytest"  # pytest-django uses pytest adapter with Django settings
+
+        adapter = get_adapter(adapter_name, str(sp_path))
+
+    except (KeyError, ValueError) as e:
+        if not json_output:
+            console.print(f"  [red]✗ Adapter error: {e}[/red]")
+        return SubprojectResult(
+            name=subproject.name,
+            adapter=subproject.adapter,
+            status="ERROR",
+            error_message=f"Adapter error: {e}",
+        )
+
+    # Set up environment variables
+    env_backup = {}
+    for key, value in subproject.env.items():
+        env_backup[key] = os.environ.get(key)
+        os.environ[key] = value
 
     try:
-        # Setup (starts tunnel if configured)
-        if tunnel_port:
-            if not json_output:
-                console.print("[dim]Starting ngrok tunnel...[/dim]")
-            setup_result = env.setup()
-            if not setup_result.success:
-                console.print(f"[red]Setup failed:[/red] {setup_result.message}")
-                return TestResult(
-                    passed=0, failed=0, errors=1, skipped=0,
-                    duration=setup_result.duration, exit_code=2
-                )
-
-            if not env.wait_ready(timeout=60):
-                console.print("[red]Error:[/red] Tunnel did not become ready")
-                env.teardown()
-                return TestResult(
-                    passed=0, failed=0, errors=1, skipped=0,
-                    duration=env.timings.startup, exit_code=2
-                )
-
-            if not json_output and env.tunnel_url:
-                console.print(f"[green]Tunnel ready:[/green] {env.tunnel_url}")
-
         # Run tests
+        start_time = time.time()
+        test_result = adapter.execute(
+            tests=None,
+            parallel=parallel,
+            coverage=coverage,
+            failfast=failfast,
+            verbose=verbose,
+        )
+        duration = time.time() - start_time
+
+        # Convert TestResult to SubprojectResult
+        sp_result = SubprojectResult(
+            name=subproject.name,
+            adapter=subproject.adapter,
+            passed=test_result.passed,
+            failed=test_result.failed,
+            errors=test_result.errors,
+            skipped=test_result.skipped,
+            duration=duration,
+            status="PASS" if test_result.verdict.value == "PASS" else (
+                "ERROR" if test_result.verdict.value == "ERROR" else "FAIL"
+            ),
+            failures=[
+                {
+                    "test": f.test_id,
+                    "name": f.test_name,
+                    "message": f.message,
+                }
+                for f in test_result.failures
+            ],
+        )
+
+        # Display result
         if not json_output:
-            console.print("[dim]Running browser tests...[/dim]")
+            status_icon = "✓" if sp_result.status == "PASS" else "✗"
+            status_color = "green" if sp_result.status == "PASS" else "red"
+            console.print(
+                f"  [{status_color}]{status_icon}[/{status_color}] "
+                f"{sp_result.passed} passed, {sp_result.failed} failed "
+                f"({sp_result.duration:.1f}s)"
+            )
 
-        results = env.run_tests(category=category, verbose=verbose)
+        return sp_result
 
-        return results
+    except Exception as e:
+        if not json_output:
+            console.print(f"  [red]✗ Execution error: {e}[/red]")
+        return SubprojectResult(
+            name=subproject.name,
+            adapter=subproject.adapter,
+            status="ERROR",
+            error_message=str(e),
+        )
 
     finally:
-        if not keep_running:
-            env.teardown()
+        # Restore environment variables
+        for key, value in env_backup.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
+def _output_multi_project_results(
+    result: "MultiProjectResult",
+    opts: TestCommandOptions,
+) -> None:
+    """Output multi-project results in the appropriate format.
+
+    Args:
+        result: Aggregated multi-project results.
+        opts: CLI options including output format.
+    """
+    json_output = opts.output.json_output
+    template = opts.output.template
+
+    if json_output:
+        # Output JSON for CI
+        console.print(json.dumps(result.to_json_dict(), indent=2))
+    elif template:
+        # Template output - could be extended for multi-project templates
+        console.print(f"[yellow]Template output not yet implemented for multi-project mode[/yellow]")
+        _display_multi_project_table(result)
+    else:
+        # Default: Rich table output
+        _display_multi_project_table(result)
+
+
+def _display_multi_project_table(result: "MultiProjectResult") -> None:
+    """Display multi-project results as a Rich table.
+
+    Args:
+        result: Aggregated multi-project results.
+    """
+    console.print()
+
+    # Create table
+    table = Table(title="Multi-Project Test Results", show_header=True, header_style="bold")
+    table.add_column("Subproject", style="cyan")
+    table.add_column("Adapter", style="dim")
+    table.add_column("Passed", justify="right", style="green")
+    table.add_column("Failed", justify="right", style="red")
+    table.add_column("Status", justify="center")
+
+    for sp in result.subprojects:
+        status_style = "green" if sp.status == "PASS" else ("yellow" if sp.status == "SKIP" else "red")
+        table.add_row(
+            sp.name,
+            sp.adapter,
+            str(sp.passed) if sp.status != "SKIP" else "--",
+            str(sp.failed) if sp.status != "SKIP" else "--",
+            f"[{status_style}]{sp.status}[/{status_style}]",
+        )
+
+    # Add totals row
+    table.add_section()
+    verdict_style = "green" if result.verdict == "PASS" else "red"
+    table.add_row(
+        "[bold]TOTAL[/bold]",
+        "",
+        f"[bold]{result.total_passed}[/bold]",
+        f"[bold]{result.total_failed}[/bold]",
+        f"[bold {verdict_style}]{result.verdict}[/bold {verdict_style}]",
+    )
+
+    console.print(table)
+    console.print()
 
 
 def _run_with_environment(
@@ -257,6 +386,12 @@ def main() -> None:
     pass
 
 
+# Register modular command groups
+register_config_commands(main, console)
+register_list_commands(main, console)
+main.add_command(e2e)
+
+
 def _execute_test_command(
     test_config: "SystemEvalConfig",
     opts: TestCommandOptions,
@@ -291,9 +426,21 @@ def _execute_test_command(
         console.print(f"[dim]Environment: {environment}[/dim]")
         console.print(f"[dim]Config: {config_path}[/dim]")
 
+    # Check for multi-project mode (v2.0)
+    if test_config.is_multi_project:
+        multi_result = run_multi_project_tests(test_config=test_config, opts=opts)
+        _output_multi_project_results(multi_result, opts)
+        # Exit with appropriate code based on verdict
+        if multi_result.verdict == "PASS":
+            sys.exit(0)
+        elif multi_result.verdict == "ERROR":
+            sys.exit(2)
+        else:
+            sys.exit(1)
+
     # Handle browser testing mode
     if opts.browser_opts.browser or opts.browser_opts.surfer:
-        results = _run_browser_tests(test_config=test_config, opts=opts)
+        results = run_browser_tests(test_config=test_config, opts=opts)
     # Check if using environment-based testing
     elif opts.environment.env_name or test_config.environments:
         results = _run_with_environment(test_config=test_config, opts=opts)
@@ -435,6 +582,10 @@ def _run_legacy_adapter_tests(
 @click.option('--surfer', is_flag=True, help='Run DebuggAI Surfer cloud E2E tests')
 @click.option('--tunnel-port', type=int, help='Port to expose via ngrok tunnel for browser tests')
 @click.option('--headed', is_flag=True, help='Run browser tests in headed mode (Playwright only)')
+# Multi-project options (v2.0)
+@click.option('--project', 'subprojects', multiple=True, help='Specific subproject(s) to run (v2.0 multi-project mode)')
+@click.option('--tags', multiple=True, help='Only run subprojects with these tags (v2.0)')
+@click.option('--exclude-tags', multiple=True, help='Exclude subprojects with these tags (v2.0)')
 def test(
     category: Optional[str],
     app: Optional[str],
@@ -462,6 +613,10 @@ def test(
     surfer: bool,
     tunnel_port: Optional[int],
     headed: bool,
+    # Multi-project options
+    subprojects: tuple,
+    tags: tuple,
+    exclude_tags: tuple,
 ) -> None:
     """Run tests using the configured adapter or environment.
 
@@ -514,6 +669,10 @@ def test(
             surfer=surfer,
             tunnel_port=tunnel_port,
             headed=headed,
+            # Multi-project
+            subprojects=subprojects,
+            tags=tags,
+            exclude_tags=exclude_tags,
         )
 
         # Delegate to internal implementation
@@ -530,323 +689,7 @@ def test(
         sys.exit(2)
 
 
-@main.command()
-@click.option('--force', is_flag=True, help='Overwrite existing config')
-def init(force: bool) -> None:
-    """Initialize systemeval.yaml configuration file."""
-    config_path = Path("systemeval.yaml")
-
-    if config_path.exists() and not force:
-        console.print(f"[yellow]Warning:[/yellow] {config_path} already exists")
-        console.print("Use --force to overwrite")
-        sys.exit(1)
-
-    # Detect project type
-    project_type = _detect_project_type()
-
-    if not project_type:
-        console.print("[yellow]Could not auto-detect project type[/yellow]")
-        console.print("Creating generic configuration")
-        project_type = "generic"
-
-    # Create default config based on project type
-    config = _create_default_config(project_type)
-
-    # Write config file
-    with open(config_path, 'w') as f:
-        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-
-    console.print(f"[green]Created {config_path}[/green]")
-    console.print(f"Detected project type: [cyan]{project_type}[/cyan]")
-    console.print("\nNext steps:")
-    console.print("  1. Review and customize systemeval.yaml")
-    console.print("  2. Run 'systemeval validate' to check configuration")
-    console.print("  3. Run 'systemeval test' to execute tests")
-
-
-@main.command()
-@click.option('--config', type=click.Path(exists=True), help='Path to config file')
-def validate(config: Optional[str]) -> None:
-    """Validate the configuration file."""
-    try:
-        config_path = Path(config) if config else find_config_file()
-        if not config_path:
-            console.print("[red]Error:[/red] No systemeval.yaml found")
-            sys.exit(2)
-
-        console.print(f"Validating [cyan]{config_path}[/cyan]...")
-
-        # Load and validate
-        test_config = load_config(config_path)
-
-        # Validate adapter exists
-        try:
-            adapter = get_adapter(test_config.adapter, str(test_config.project_root.absolute()))
-            if not adapter.validate_environment():
-                console.print("[yellow]Warning:[/yellow] Environment validation failed")
-        except (KeyError, ValueError) as e:
-            console.print(f"[red]Adapter error:[/red] {e}")
-            sys.exit(1)
-
-        # Display config summary
-        table = Table(title="Configuration Summary")
-        table.add_column("Setting", style="cyan")
-        table.add_column("Value", style="green")
-
-        table.add_row("Adapter", test_config.adapter)
-        table.add_row("Project Root", str(test_config.project_root))
-        table.add_row("Test Directory", str(test_config.test_directory))
-
-        if test_config.categories:
-            categories = ", ".join(test_config.categories.keys())
-            table.add_row("Categories", categories)
-
-        console.print(table)
-        console.print("\n[green]Configuration is valid![/green]")
-
-    except Exception as e:
-        console.print(f"[red]Validation failed:[/red] {e}")
-        sys.exit(1)
-
-
-@main.group()
-def list_cmd() -> None:
-    """List available items."""
-    pass
-
-
-@list_cmd.command('categories')
-@click.option('--config', type=click.Path(exists=True), help='Path to config file')
-def list_categories(config: Optional[str]) -> None:
-    """List available test categories."""
-    try:
-        config_path = Path(config) if config else find_config_file()
-        if not config_path:
-            console.print("[red]Error:[/red] No systemeval.yaml found")
-            sys.exit(2)
-
-        test_config = load_config(config_path)
-
-        if not test_config.categories:
-            console.print("[yellow]No categories defined in configuration[/yellow]")
-            return
-
-        table = Table(title="Available Test Categories")
-        table.add_column("Category", style="cyan")
-        table.add_column("Description", style="white")
-        table.add_column("Markers", style="dim")
-
-        for name, category in test_config.categories.items():
-            markers = ", ".join(category.markers) if category.markers else "-"
-            description = category.description or "-"
-            table.add_row(name, description, markers)
-
-        console.print(table)
-
-    except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
-        sys.exit(2)
-
-
-@list_cmd.command('environments')
-@click.option('--config', type=click.Path(exists=True), help='Path to config file')
-def list_environments_cmd(config: Optional[str]) -> None:
-    """List available test environments."""
-    try:
-        config_path = Path(config) if config else find_config_file()
-        if not config_path:
-            console.print("[red]Error:[/red] No systemeval.yaml found")
-            sys.exit(2)
-
-        test_config = load_config(config_path)
-
-        if not test_config.environments:
-            console.print("[yellow]No environments defined in configuration[/yellow]")
-            console.print("\nAdd an 'environments' section to your systemeval.yaml:")
-            console.print("""
-[dim]environments:
-  backend:
-    type: docker-compose
-    compose_file: local.yml
-    test_command: pytest
-  frontend:
-    type: standalone
-    command: npm run dev
-    test_command: npm test[/dim]
-""")
-            return
-
-        table = Table(title="Available Environments")
-        table.add_column("Name", style="cyan")
-        table.add_column("Type", style="white")
-        table.add_column("Default", style="dim")
-        table.add_column("Details", style="dim")
-
-        for name, env_config in test_config.environments.items():
-            env_type = env_config.type
-            is_default = "Yes" if env_config.default else ""
-
-            # Build details string based on typed config
-            from systemeval.config import (
-                DockerComposeEnvConfig,
-                CompositeEnvConfig,
-                StandaloneEnvConfig,
-            )
-            if isinstance(env_config, DockerComposeEnvConfig):
-                compose_file = env_config.compose_file
-                services = env_config.services
-                details = f"file: {compose_file}"
-                if services:
-                    details += f", services: {len(services)}"
-            elif isinstance(env_config, CompositeEnvConfig):
-                deps = env_config.depends_on
-                details = f"depends: {', '.join(deps)}"
-            elif isinstance(env_config, StandaloneEnvConfig):
-                cmd = env_config.command
-                details = cmd[:40] + "..." if len(cmd) > 40 else cmd
-            else:
-                details = ""
-
-            table.add_row(name, env_type, is_default, details)
-
-        console.print(table)
-        console.print("\n[dim]Usage: systemeval test --env <name>[/dim]")
-
-    except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
-        sys.exit(2)
-
-
-@list_cmd.command('adapters')
-def list_adapters_cmd() -> None:
-    """List available test adapters."""
-    table = Table(title="Available Adapters")
-    table.add_column("Adapter", style="cyan")
-    table.add_column("Status", style="white")
-
-    adapters = get_available_adapters()
-
-    if not adapters:
-        console.print("[yellow]No adapters registered[/yellow]")
-        return
-
-    # Map adapter names to descriptions
-    adapter_info = {
-        "pytest": "Python test framework (pytest)",
-        "jest": "JavaScript test framework (jest)",
-        "pipeline": "DebuggAI pipeline evaluation (Django)",
-    }
-
-    for name in adapters:
-        description = adapter_info.get(name, "Test framework adapter")
-        table.add_row(name, f"[green]Available[/green] - {description}")
-
-    console.print(table)
-
-
-@list_cmd.command('templates')
-def list_templates_cmd() -> None:
-    """List available output templates."""
-    from systemeval.templates import TemplateRenderer
-
-    renderer = TemplateRenderer()
-    templates = renderer.list_templates()
-
-    table = Table(title="Available Output Templates")
-    table.add_column("Template", style="cyan")
-    table.add_column("Description", style="white")
-
-    for name, description in sorted(templates.items()):
-        table.add_row(name, description)
-
-    console.print(table)
-    console.print("\n[dim]Usage: systemeval test --template <name>[/dim]")
-
-
-def _detect_project_type() -> Optional[str]:
-    """Detect project type from common files."""
-    cwd = Path.cwd()
-
-    # Django
-    if (cwd / "manage.py").exists():
-        return "django"
-
-    # Next.js / Node.js
-    if (cwd / "package.json").exists():
-        try:
-            import json
-            with open(cwd / "package.json") as f:
-                pkg = json.load(f)
-                deps = {**pkg.get("dependencies", {}), **pkg.get("devDependencies", {})}
-                if "next" in deps:
-                    return "nextjs"
-                if "jest" in deps:
-                    return "jest"
-        except (OSError, json.JSONDecodeError, KeyError, TypeError):
-            # Failed to read or parse package.json - fall through to nodejs
-            pass
-        return "nodejs"
-
-    # Python
-    if (cwd / "pytest.ini").exists() or (cwd / "pyproject.toml").exists():
-        return "python-pytest"
-
-    return None
-
-
-def _create_default_config(project_type: str) -> dict:
-    """Create default configuration based on project type."""
-    base_config = {
-        "adapter": "pytest",
-        "project_root": ".",
-        "test_directory": "tests",
-        "categories": {},
-    }
-
-    if project_type == "django":
-        base_config.update({
-            "adapter": "pytest",
-            "test_directory": "backend",
-            "categories": {
-                "unit": {
-                    "description": "Fast isolated unit tests",
-                    "markers": ["unit"],
-                },
-                "integration": {
-                    "description": "Integration tests with database",
-                    "markers": ["integration"],
-                },
-                "api": {
-                    "description": "API endpoint tests",
-                    "markers": ["api"],
-                },
-            },
-        })
-    elif project_type in ("nextjs", "nodejs", "jest"):
-        base_config.update({
-            "adapter": "jest",
-            "test_directory": ".",
-            "categories": {
-                "unit": {
-                    "description": "Unit tests",
-                    "test_match": ["**/*.test.js", "**/*.test.ts"],
-                },
-                "integration": {
-                    "description": "Integration tests",
-                    "test_match": ["**/*.integration.test.js"],
-                },
-            },
-        })
-    elif project_type == "python-pytest":
-        base_config.update({
-            "adapter": "pytest",
-            "categories": {
-                "unit": {"markers": ["unit"]},
-                "integration": {"markers": ["integration"]},
-            },
-        })
-
-    return base_config
+# Config and list commands are now registered via modular functions above
 
 
 def _display_results(results: TestResult) -> None:
@@ -892,6 +735,9 @@ def _display_results(results: TestResult) -> None:
         console.print(f"\n[red bold]======== FAILED ========[/red bold]")
     else:
         console.print(f"\n[green bold]======== PASSED ========[/green bold]")
+
+
+# E2E commands are registered via the modular e2e command group above
 
 
 if __name__ == '__main__':

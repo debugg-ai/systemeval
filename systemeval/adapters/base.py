@@ -88,3 +88,29 @@ class BaseAdapter(ABC):
     def validate_environment(self) -> bool:
         """Validate that the test framework is properly configured."""
         pass
+
+    def get_command(
+        self,
+        tests: Optional[List[TestItem]] = None,
+        parallel: bool = False,
+        coverage: bool = False,
+        failfast: bool = False,
+        verbose: bool = False,
+        timeout: Optional[int] = None,
+    ) -> List[str]:
+        """Get the command that would be used to run tests.
+
+        Useful for debugging and display purposes.
+
+        Args:
+            tests: Optional list of specific tests to run.
+            parallel: Enable parallel execution.
+            coverage: Enable coverage collection.
+            failfast: Stop on first failure.
+            verbose: Enable verbose output.
+            timeout: Test timeout in seconds.
+
+        Returns:
+            List of command arguments that would be passed to subprocess.
+        """
+        return []

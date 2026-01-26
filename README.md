@@ -199,6 +199,13 @@ For multi-session evaluations:
 | `systemeval list templates` | Show available output templates |
 | `systemeval list environments` | Show configured environments |
 
+## Design Requirements
+
+- Do not introduce hard-coded strings/numbers; use configuration files, constants, or environment variables for values that may change between environments.
+- Keep modules focused and digestible—split files that exceed ~600 lines and avoid functions longer than a screen so reasoning and tests stay simple.
+- Maintain clear separation of concerns: configuration, command parsing, orchestration, and environment management should live in distinct layers.
+- Document any deliberate exceptions to these rules (legacy constraints, temporary hacks) so reviewers know the rationale.
+
 ### Test Options
 
 ```bash
@@ -360,6 +367,14 @@ systemeval test --env frontend
 4. **Machine-First**: JSON output designed for automation
 5. **Framework-Agnostic**: Adapters hide implementation details
 6. **CI-Native**: Exit codes and output formats for pipelines
+
+## Design Requirements
+
+- Avoid embedding “magic” strings or numbers; prefer constants, YAML fields, or env vars so behavior is configurable.
+- Break files that grow beyond ~600 lines into cohesive, testable pieces and keep functions short unless the domain demand special handling.
+- Enforce single-responsibility layering: parsing, orchestration, and runtime helpers should be maintained in separate modules.
+- Document intentional deviations so future agents understand why the rule was relaxed.
+- Refer to `../docs/crawl-e2e-api-reference.md` before wiring CLI integrations to reuse the documented crawl and E2E API shapes.
 
 ## Comparison with Other Tools
 

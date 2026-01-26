@@ -153,12 +153,21 @@ def _register_builtin_adapters() -> None:
     except ImportError:
         pass
 
-    # Future: Register jest adapter when implemented
-    # try:
-    #     from .jest_adapter import JestAdapter
-    #     register_adapter("jest", JestAdapter)
-    # except ImportError:
-    #     pass
+    # Try to register vitest adapter
+    try:
+        from .vitest_adapter import VitestAdapter
+
+        register_adapter("vitest", VitestAdapter)
+    except ImportError:
+        pass
+
+    # Try to register jest adapter
+    try:
+        from .jest_adapter import JestAdapter
+
+        register_adapter("jest", JestAdapter)
+    except ImportError:
+        pass
 
 
 # Auto-register on module import

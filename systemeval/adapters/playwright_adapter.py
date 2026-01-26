@@ -16,6 +16,11 @@ from systemeval.adapters.base import AdapterConfig, BaseAdapter, TestItem, TestR
 
 logger = logging.getLogger(__name__)
 
+# Multiplier for subprocess timeout relative to Playwright's internal timeout.
+# This gives Playwright time to handle its own timeouts gracefully before
+# the subprocess is forcefully killed.
+SUBPROCESS_TIMEOUT_MULTIPLIER = 10
+
 
 class PlaywrightAdapter(BaseAdapter):
     """
@@ -219,8 +224,8 @@ class PlaywrightAdapter(BaseAdapter):
                 if test.path:
                     cmd.append(test.path)
 
-        # Set timeout
-        exec_timeout = timeout or self.timeout // 1000 * 10  # Convert to seconds with buffer
+        # Set timeout: convert Playwright's ms timeout to seconds with buffer multiplier
+        exec_timeout = timeout or self.timeout // 1000 * SUBPROCESS_TIMEOUT_MULTIPLIER
 
         try:
             result = subprocess.run(
@@ -264,6 +269,49 @@ class PlaywrightAdapter(BaseAdapter):
                     message="npx or playwright not found in PATH",
                 )],
             )
+
+    def get_command(
+        self,
+        tests: Optional[List[TestItem]] = None,
+        parallel: bool = False,
+        coverage: bool = False,
+        failfast: bool = False,
+        verbose: bool = False,
+        timeout: Optional[int] = None,
+    ) -> List[str]:
+        """Get the Playwright command that would be used to run tests.
+
+        Args:
+            tests: Specific test items to run (None = run all)
+            parallel: Enable parallel test execution
+            coverage: Not used for Playwright
+            failfast: Stop on first failure
+            verbose: Not used for Playwright
+            timeout: Not used (Playwright has its own timeout config)
+
+        Returns:
+            List of command arguments (e.g., ['npx', 'playwright', 'test', ...])
+        """
+        cmd = self._build_base_command()
+
+        # Use JSON reporter for structured output
+        cmd.extend(["--reporter=json"])
+
+        if failfast:
+            cmd.append("--max-failures=1")
+
+        if parallel:
+            cmd.extend(["--workers", "auto"])
+        else:
+            cmd.extend(["--workers", "1"])
+
+        # Add specific test files if provided
+        if tests:
+            for test in tests:
+                if test.path:
+                    cmd.append(test.path)
+
+        return cmd
 
     def _parse_results(
         self,

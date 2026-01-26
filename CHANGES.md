@@ -1,216 +1,88 @@
-# Pipeline Adapter Django Decoupling - Implementation Summary
+# Changelog
 
-## Issue: SE-dhh
+All notable changes to systemeval will be documented in this file.
 
-**Problem**: Direct Django ORM imports in adapter code violated the adapter pattern, preventing use outside Django context.
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Changes Made
+## [0.3.0] - 2026-01-21
 
-### 1. Created Repository Abstraction Layer
+### Added
 
-**File**: `/systemeval/systemeval/adapters/repositories.py`
+- **Multi-Project Support (v2.0 Config)**
+  - New `subprojects` array for managing multiple test targets
+  - `defaults` section for shared configuration across subprojects
+  - `--project` CLI flag to run specific subprojects
+  - `--tags` and `--exclude-tags` for filtering by subproject tags
+  - Aggregated reporting across all subprojects
 
-Created three new classes:
+- **New Adapters**
+  - `VitestAdapter` for Vitest test framework (TypeScript/JavaScript)
+  - `JestAdapter` for Jest test framework (TypeScript/JavaScript)
+  - Both support JSON output parsing, coverage, failfast, and parallel execution
 
-#### `ProjectRepository` (Protocol)
-- Defines contract for data access operations
-- Methods: `get_all_projects()`, `get_project_by_id()`, `find_project()`, etc.
-- Framework-agnostic interface
-- Uses `@runtime_checkable` for duck typing
+- **Code Quality Improvements**
+  - Added `__all__` exports to all `__init__.py` files for explicit public API
+  - Added `working_directory` context manager for safe directory changes
+  - Added `SUBPROCESS_TIMEOUT_MULTIPLIER` constant in Playwright adapter
+  - Improved type annotations in `render_results()` function
+  - Removed unused imports across codebase
 
-#### `DjangoProjectRepository` (Implementation)
-- Production implementation using Django ORM
-- Imports Django models only in `__init__`
-- Converts Django models to dictionaries
-- Preserves `_instance` reference for internal use
-- Fails gracefully if Django not available
+- **CLI Enhancements**
+  - `--env-mode` option (auto/docker/local) replacing deprecated --docker flag
+  - Multi-project table output with Rich formatting
+  - JSON output for multi-project results
 
-#### `MockProjectRepository` (Test Implementation)
-- In-memory implementation for testing
-- No Django dependencies
-- Methods: `add_project()`, `add_repository()`, etc.
-- Allows testing adapter without Django setup
+### Changed
 
-### 2. Updated Pipeline Adapter
+- Config schema now supports both v1.0 (single project) and v2.0 (multi-project)
+- `SystemEvalConfig` has new `is_multi_project` property
+- Duration naming standardized: internal uses `duration`, API uses `duration_seconds`
 
-**File**: `/systemeval/systemeval/adapters/pipeline_adapter.py`
+### Fixed
 
-#### Public Interface Changes
+- CLI test mocks now properly set `is_multi_project` attribute
+- Removed unused `Verdict` import from composite.py
 
-**`__init__()` - Added dependency injection**:
-```python
-def __init__(
-    self,
-    project_root: str,
-    repository: Optional[ProjectRepository] = None,  # NEW PARAMETER
-) -> None:
-```
+## [0.2.2] - 2026-01-07
 
-- Accepts optional `repository` parameter
-- Defaults to `DjangoProjectRepository()` for backward compatibility
-- No breaking changes for existing code
+### Added
 
-**`validate_environment()` - Uses repository abstraction**:
-- Changed from checking Django apps to testing repository
-- Framework-agnostic validation
+- Repository abstraction layer for PipelineAdapter
+- `ProjectRepository` protocol for framework-agnostic data access
+- `DjangoProjectRepository` for Django ORM integration
+- `MockProjectRepository` for testing without Django
 
-**`discover()` - Removed direct ORM usage**:
-- Before: `from backend.projects.models import Project; Project.objects.all()`
-- After: `self._repository.get_all_projects()`
+### Changed
 
-**`execute()` - Uses repository for project lookup**:
-- Before: `Project.objects.get(id=int(test.id))`
-- After: `self._repository.get_project_by_id(test.id)`
+- PipelineAdapter now uses dependency injection for repository access
+- Improved testability of adapter code
 
-**`_find_project()` - Delegates to repository**:
-- Before: Direct ORM queries
-- After: `self._repository.find_project(slug)`
+## [0.2.1] - 2026-01-04
 
-**`_trigger_webhook()` - Uses repository for lookups**:
-- Before: Direct `RepositoryInstallation.objects.filter()`
-- After: `self._repository.get_repository_installation(repo.id)`
+### Added
 
-#### Private Helper Methods
+- Initial multi-adapter support
+- Playwright adapter for browser testing
+- Surfer adapter for web crawling tests
 
-**`_poll_for_completion()` and `_collect_metrics()`**:
-- Still use Django ORM directly
-- These are internal implementation details
-- Perform complex database queries specific to Django
-- Abstraction at this level would duplicate Django functionality
-- Added docstring comments explaining design decision
+## [0.2.0] - 2025-12-30
 
-### 3. Updated Exports
+### Added
 
-**File**: `/systemeval/systemeval/adapters/__init__.py`
+- Environment abstraction layer
+- Docker Compose environment support
+- Composite environments for multi-service testing
+- Ngrok environment for tunnel creation
+- Browser environment for E2E testing
 
-Added repository classes to public API:
-```python
-from .repositories import (
-    DjangoProjectRepository,
-    MockProjectRepository,
-    ProjectRepository,
-)
-```
+## [0.1.0] - 2025-12-15
 
-### 4. Documentation and Examples
+### Added
 
-**File**: `/systemeval/examples/test_pipeline_abstraction.py`
-- Demonstrates using `MockProjectRepository`
-- Shows discovery without Django
-- Validates abstraction works correctly
-
-**File**: `/systemeval/docs/pipeline_adapter_abstraction.md`
-- Comprehensive documentation
-- Architecture diagrams
-- Usage examples
-- Design decisions explained
-- Migration guide
-
-## Design Principles Applied
-
-1. **Dependency Inversion Principle**: High-level modules depend on abstractions
-2. **Repository Pattern**: Encapsulates data access logic
-3. **Protocol-based Design**: Duck typing for flexibility
-4. **Backward Compatibility**: Existing code continues to work
-5. **Graceful Degradation**: Clear error messages when using mock repository
-
-## Benefits
-
-1. **Framework Independence**: Adapter can work without Django
-2. **Testability**: Easy to test with `MockProjectRepository`
-3. **Flexibility**: Support for alternative data sources
-4. **Maintainability**: Clear separation of concerns
-5. **No Breaking Changes**: Existing code continues to work
-
-## Testing
-
-The abstraction was validated with:
-
-1. **Syntax validation**: All files compile without errors
-2. **Import tests**: Repository classes import successfully
-3. **Functional test**: Example demonstrates discovery without Django
-4. **Graceful failure**: Mock repository fails execution with clear message
-
-Example output:
-```
-Testing PipelineAdapter with MockProjectRepository...
-============================================================
-
-1. Validating environment...
-   Environment valid: True
-
-2. Discovering projects...
-   Found 2 projects:
-   - Test Project 1 (id=1, slug=test-project-1)
-     Markers: pipeline, build, health, crawl, e2e
-     Repo URL: https://github.com/test/repo1
-```
-
-## Migration Path
-
-### For Existing Code
-No changes required:
-```python
-adapter = PipelineAdapter('/path/to/backend')  # Still works!
-```
-
-### For New Code (Testing)
-Use dependency injection:
-```python
-repo = MockProjectRepository()
-repo.add_project({'id': '1', 'name': 'Test', 'slug': 'test'})
-adapter = PipelineAdapter('/fake/path', repository=repo)
-```
-
-### For Custom Implementations
-Implement the protocol:
-```python
-class CustomRepository:
-    def get_all_projects(self) -> List[Dict[str, Any]]:
-        # Your implementation
-        pass
-```
-
-## Files Changed
-
-1. `/systemeval/systemeval/adapters/repositories.py` - NEW (334 lines)
-2. `/systemeval/systemeval/adapters/pipeline_adapter.py` - MODIFIED
-3. `/systemeval/systemeval/adapters/__init__.py` - MODIFIED (exports)
-4. `/systemeval/examples/test_pipeline_abstraction.py` - NEW (demonstration)
-5. `/systemeval/docs/pipeline_adapter_abstraction.md` - NEW (documentation)
-6. `/systemeval/CHANGES.md` - NEW (this file)
-
-## Impact Analysis
-
-**Breaking Changes**: None
-
-**New Features**:
-- Repository abstraction layer
-- Mock repository for testing
-- Dependency injection support
-
-**Deprecated**: None
-
-**Removed**: None (only refactored)
-
-## Next Steps
-
-Potential future enhancements:
-
-1. Create unit tests for `MockProjectRepository`
-2. Create integration tests using `DjangoProjectRepository`
-3. Add async repository protocol
-4. Implement caching repository wrapper
-5. Extract metrics collection into separate repository
-
-## Verification
-
-Run the example to verify the abstraction:
-```bash
-python3 examples/test_pipeline_abstraction.py
-```
-
-Import test:
-```bash
-python3 -c "from systemeval.adapters import MockProjectRepository; print('Success!')"
-```
+- Initial release
+- Core evaluation framework
+- Pytest adapter
+- CLI with test, init, validate commands
+- JSON and template-based output
+- Configuration via systemeval.yaml

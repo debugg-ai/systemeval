@@ -265,6 +265,7 @@ class TestCLITestCommand:
         mock_config.adapter = "pytest"
         mock_config.project_root = tmp_path
         mock_config.environments = None
+        mock_config.is_multi_project = False  # Ensure v1.0 single-project mode
         mock_load.return_value = mock_config
 
         mock_adapter = MagicMock()
@@ -286,6 +287,35 @@ class TestCLITestCommand:
             data = json.loads(result.output)
             assert "verdict" in data
             assert "metadata" in data
+
+
+class TestMultiProjectOptions:
+    """Tests for multi-project CLI options (v2.0)."""
+
+    def test_project_option_in_help(self):
+        """Test that --project option is documented in help."""
+        runner = CliRunner()
+        result = runner.invoke(main, ["test", "--help"])
+
+        assert result.exit_code == 0
+        assert "--project" in result.output
+        assert "subproject" in result.output.lower()
+
+    def test_tags_option_in_help(self):
+        """Test that --tags option is documented in help."""
+        runner = CliRunner()
+        result = runner.invoke(main, ["test", "--help"])
+
+        assert result.exit_code == 0
+        assert "--tags" in result.output
+
+    def test_exclude_tags_option_in_help(self):
+        """Test that --exclude-tags option is documented in help."""
+        runner = CliRunner()
+        result = runner.invoke(main, ["test", "--help"])
+
+        assert result.exit_code == 0
+        assert "--exclude-tags" in result.output
 
 
 class TestEnvModeOption:

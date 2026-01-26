@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "systemeval"
-version = "0.2.1"
-description = "Unified test runner CLI with framework-agnostic adapters"
+version = "0.4.0"
+description = "AI-powered test orchestration platform: traditional testing (pytest, jest, playwright) + DebuggAI natural language tests, commit-based generation, and visual failure analysis"
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "MIT"}
@@ -41,9 +41,16 @@ pytest = [
     "pytest-xdist>=3.0",
 ]
 jest = []
+# Django support for pipeline adapter and Django project testing
+# Install with: pip install systemeval[django]
+django = [
+    "Django>=4.0",
+]
+# Pipeline adapter - requires Django for database metrics collection
+# In container environments, Django is typically already available
+# Install with: pip install systemeval[pipeline] or systemeval[django]
 pipeline = [
-    # Django and related deps are provided by the container environment
-    # This marker indicates pipeline adapter support
+    "systemeval[django]",
 ]
 dev = [
     "systemeval[pytest]",
@@ -73,6 +80,57 @@ target-version = ["py39", "py310", "py311", "py312"]
 [tool.ruff]
 line-length = 100
 target-version = "py39"
+
+# =============================================================================
+# SE-FLW: Architecture Lint Rules
+# =============================================================================
+# Custom lint checks are in scripts/check_env_access.py
+#
+# Rule: No direct environment variable access in business logic
+# Principle: "No magic values" and "no config discovery"
+#
+# Forbidden patterns (in business logic):
+#   - os.environ["KEY"]
+#   - os.environ.get("KEY")
+#   - os.getenv("KEY")
+#   - environ.get patterns
+#
+# Allowed files (entry points and config layer):
+#   - cli.py (entry point)
+#   - config.py (config loading layer)
+#   - conftest.py (test setup)
+#   - tests/* (test files)
+#
+# Allowed patterns (subprocess env passthrough):
+#   - env={**os.environ, ...}  (passing env to subprocess)
+#   - env=dict(os.environ)     (copying env for subprocess)
+#
+# Run check: python scripts/check_env_access.py
+#
+# -----------------------------------------------------------------------------
+# SE-7gk: No hardcoded paths in business logic
+# -----------------------------------------------------------------------------
+# Rule: Paths must come from configuration, not be hardcoded
+# Principle: "No magic values" - paths are environment-specific
+#
+# Forbidden patterns (in business logic):
+#   - /Users/*, /home/*, /root/*  (user directories)
+#   - C:\*, D:\*                   (Windows drives)
+#   - /var/*, /tmp/*, /opt/*       (system directories)
+#   - /Applications/*, /Library/*  (macOS system paths)
+#
+# Allowed files (configuration layer):
+#   - config.py, settings.py, constants.py, paths.py, defaults.py
+#   - conftest.py (test setup)
+#   - tests/* (test files)
+#   - scripts/* (lint scripts)
+#
+# Allowed contexts:
+#   - Docstrings (documentation examples are okay)
+#   - Comments
+#
+# Run check: python scripts/check_hardcoded_paths.py
+# =============================================================================
 
 [tool.mypy]
 python_version = "3.9"

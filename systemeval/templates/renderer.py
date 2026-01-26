@@ -1,10 +1,11 @@
 """Template renderer for test results."""
 
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from jinja2 import Environment, BaseLoader, FileSystemLoader, select_autoescape
 
+from systemeval.types import TestResult
 from .defaults import DEFAULT_TEMPLATES, get_default_template
 
 
@@ -211,7 +212,7 @@ class TemplateRenderer:
 
 
 def render_results(
-    results: Any,
+    results: Union[TestResult, Dict[str, Any]],
     template_name: str = "summary",
     custom_templates: Optional[Dict[str, str]] = None,
 ) -> str:

@@ -17,6 +17,7 @@ except ImportError:
     PYTEST_AVAILABLE = False
 
 from .base import AdapterConfig, BaseAdapter, TestFailure, TestItem, TestResult
+from systemeval.utils import working_directory
 from systemeval.utils.django import detect_django_settings
 from systemeval.utils.logging import get_logger
 
@@ -202,12 +203,8 @@ class PytestAdapter(BaseAdapter):
         collect_plugin = PytestCollectPlugin()
 
         # Run pytest collection
-        original_dir = os.getcwd()
-        try:
-            os.chdir(self.project_root)
+        with working_directory(self.project_root):
             pytest.main(args, plugins=[collect_plugin])
-        finally:
-            os.chdir(original_dir)
 
         # Convert collected items to TestItem objects
         test_items = []
@@ -296,16 +293,66 @@ class PytestAdapter(BaseAdapter):
             args.append(self.project_root)
 
         # Execute pytest
-        original_dir = os.getcwd()
-        exit_code = 0
-        try:
-            os.chdir(self.project_root)
+        with working_directory(self.project_root):
             exit_code = pytest.main(args, plugins=[result_plugin])
-        finally:
-            os.chdir(original_dir)
 
         # Build result from collected data
         return result_plugin.get_result(exit_code)
+
+    def get_command(
+        self,
+        tests: Optional[List[TestItem]] = None,
+        parallel: bool = False,
+        coverage: bool = False,
+        failfast: bool = False,
+        verbose: bool = False,
+        timeout: Optional[int] = None,
+    ) -> List[str]:
+        """Get the pytest command that would be used to run tests.
+
+        Args:
+            tests: Specific test items to run (None = run all)
+            parallel: Enable parallel test execution
+            coverage: Enable coverage reporting
+            failfast: Stop on first failure
+            verbose: Verbose output
+            timeout: Timeout in seconds
+
+        Returns:
+            List of command arguments (e.g., ['pytest', '-v', 'tests/'])
+        """
+        args = ["pytest"]
+
+        # Verbosity
+        if verbose:
+            args.append("-vv")
+        else:
+            args.append("-v")
+
+        # Fail fast
+        if failfast:
+            args.append("-x")
+
+        # Parallel execution
+        if parallel:
+            args.extend(["-n", "auto"])
+
+        # Coverage
+        if coverage:
+            args.extend(["--cov", self.project_root, "--cov-report", "term-missing"])
+
+        # Timeout
+        if timeout:
+            args.append(f"--timeout={timeout}")
+
+        # Specific tests or full suite
+        if tests:
+            for test in tests:
+                args.append(f"{test.path}::{test.name}")
+        else:
+            args.append(self.project_root)
+
+        return args
 
     def get_available_markers(self) -> List[str]:
         """Return available test markers/categories.
@@ -314,13 +361,10 @@ class PytestAdapter(BaseAdapter):
             List of marker names
         """
         args = ["--markers"]
-        original_dir = os.getcwd()
 
         # Capture markers from pytest
         markers = []
-        try:
-            os.chdir(self.project_root)
-
+        with working_directory(self.project_root):
             # Run pytest --markers and capture output
             import io
             import contextlib
@@ -338,8 +382,5 @@ class PytestAdapter(BaseAdapter):
                     marker_name = line.split("@pytest.mark.")[1].split(":")[0].strip()
                     if marker_name and marker_name not in ["parametrize", "skip", "skipif"]:
                         markers.append(marker_name)
-
-        finally:
-            os.chdir(original_dir)
 
         return sorted(set(markers))
