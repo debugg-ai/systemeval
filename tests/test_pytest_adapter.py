@@ -9,8 +9,8 @@ from unittest.mock import MagicMock, patch, PropertyMock
 
 import pytest
 
-from systemeval.adapters.pytest_adapter import (
-    PytestAdapter,
+from systemeval.adapters import PytestAdapter
+from systemeval.adapters.python.pytest_adapter import (
     PytestCollectPlugin,
     PytestResultPlugin,
     PYTEST_AVAILABLE,
@@ -1111,7 +1111,7 @@ class TestPytestAvailability:
 
     def test_adapter_raises_when_pytest_not_available(self, temp_project_dir):
         """Test that adapter raises ImportError when pytest is unavailable."""
-        with patch("systemeval.adapters.pytest_adapter.PYTEST_AVAILABLE", False):
+        with patch("systemeval.adapters.python.pytest_adapter.PYTEST_AVAILABLE", False):
             # We need to reload the module or patch at init time
             # For now, just verify the constant check in __init__
             pass  # This is tested by the actual code path

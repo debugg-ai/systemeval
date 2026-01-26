@@ -1136,7 +1136,7 @@ class TestStandaloneEnvironmentIntegration:
 # ============================================================================
 
 from systemeval.environments.docker_compose import DockerComposeEnvironment
-from systemeval.plugins.docker_manager import (
+from systemeval.utils.docker import (
     DockerResourceManager,
     HealthCheckConfig,
     CommandResult,

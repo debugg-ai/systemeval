@@ -121,51 +121,48 @@ def is_registered(name: str) -> bool:
 # Auto-register available adapters
 def _register_builtin_adapters() -> None:
     """Register built-in adapters if their dependencies are available."""
-    # Try to register pytest adapter
+    # Try to register Python adapters
     try:
-        from .pytest_adapter import PytestAdapter
+        from .python.pytest_adapter import PytestAdapter
 
         register_adapter("pytest", PytestAdapter)
     except ImportError:
         pass
 
-    # Try to register pipeline adapter
     try:
-        from .pipeline_adapter import PipelineAdapter
+        from .python.pipeline import PipelineAdapter
 
         register_adapter("pipeline", PipelineAdapter)
     except ImportError:
         pass
 
-    # Try to register playwright adapter
+    # Try to register JavaScript adapters
     try:
-        from .playwright_adapter import PlaywrightAdapter
+        from .js.jest_adapter import JestAdapter
 
-        register_adapter("playwright", PlaywrightAdapter)
+        register_adapter("jest", JestAdapter)
     except ImportError:
         pass
 
-    # Try to register surfer adapter
     try:
-        from .surfer_adapter import SurferAdapter
-
-        register_adapter("surfer", SurferAdapter)
-    except ImportError:
-        pass
-
-    # Try to register vitest adapter
-    try:
-        from .vitest_adapter import VitestAdapter
+        from .js.vitest_adapter import VitestAdapter
 
         register_adapter("vitest", VitestAdapter)
     except ImportError:
         pass
 
-    # Try to register jest adapter
+    # Try to register browser adapters
     try:
-        from .jest_adapter import JestAdapter
+        from .browser.playwright_adapter import PlaywrightAdapter
 
-        register_adapter("jest", JestAdapter)
+        register_adapter("playwright", PlaywrightAdapter)
+    except ImportError:
+        pass
+
+    try:
+        from .browser.surfer_adapter import SurferAdapter
+
+        register_adapter("surfer", SurferAdapter)
     except ImportError:
         pass
 

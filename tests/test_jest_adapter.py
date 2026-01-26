@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from systemeval.adapters.jest_adapter import JestAdapter
+from systemeval.adapters import JestAdapter
 from systemeval.types import AdapterConfig, TestItem
 
 

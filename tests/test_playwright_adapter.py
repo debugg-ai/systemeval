@@ -5,7 +5,7 @@ import json
 from unittest.mock import MagicMock, patch
 import subprocess
 
-from systemeval.adapters.playwright_adapter import PlaywrightAdapter
+from systemeval.adapters import PlaywrightAdapter
 from systemeval.adapters import TestResult, TestFailure
 
 

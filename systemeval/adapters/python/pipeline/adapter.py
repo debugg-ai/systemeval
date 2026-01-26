@@ -7,8 +7,8 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from .base import AdapterConfig, BaseAdapter, TestFailure, TestItem, TestResult
-from .repositories import DjangoProjectRepository, ProjectRepository
+from systemeval.adapters.base import AdapterConfig, BaseAdapter, TestFailure, TestItem, TestResult
+from systemeval.adapters.repositories import DjangoProjectRepository, ProjectRepository
 from systemeval.core.evaluation import (
     EvaluationResult,
     create_evaluation,

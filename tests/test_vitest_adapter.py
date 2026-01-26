@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from systemeval.adapters.vitest_adapter import VitestAdapter
+from systemeval.adapters import VitestAdapter
 from systemeval.types import AdapterConfig, TestItem
 
 

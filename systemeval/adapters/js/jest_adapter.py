@@ -1,27 +1,27 @@
 """
-Vitest adapter for TypeScript/JavaScript testing.
+Jest adapter for TypeScript/JavaScript testing.
 
-Runs Vitest tests via npx and parses JSON output for results.
+Runs Jest tests via npx and parses JSON output for results.
 """
 import json
 import logging
 import os
-import shutil
 import subprocess
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from systemeval.adapters.base import AdapterConfig, BaseAdapter, TestItem, TestResult, TestFailure
+from systemeval.adapters.base import AdapterConfig, TestItem, TestResult, TestFailure
+from .base import BaseJavaScriptAdapter
 
 logger = logging.getLogger(__name__)
 
 
-class VitestAdapter(BaseAdapter):
+class JestAdapter(BaseJavaScriptAdapter):
     """
-    Adapter for running Vitest tests.
+    Adapter for running Jest tests.
 
-    Uses npx vitest run to execute tests and parses JSON reporter output.
+    Uses npx jest to execute tests and parses JSON output for results.
 
     Supports initialization with either AdapterConfig or legacy parameters.
 
@@ -31,60 +31,51 @@ class VitestAdapter(BaseAdapter):
             project_root="/path/to/project",
             timeout=60,
             extra={
-                "config_file": "vitest.config.ts",
+                "config_file": "jest.config.js",
                 "coverage": True,
             }
         )
-        adapter = VitestAdapter(config)
+        adapter = JestAdapter(config)
 
         # Using legacy parameters (backward compatible)
-        adapter = VitestAdapter(
+        adapter = JestAdapter(
             project_root="/path/to/project",
-            config_file="vitest.config.ts",
+            config_file="jest.config.js",
         )
     """
 
     def __init__(
         self,
         config_or_project_root: Union[AdapterConfig, str, Path],
-        config_file: str = "vitest.config.ts",
+        config_file: Optional[str] = None,
         timeout: int = 60,
     ) -> None:
-        """Initialize Vitest adapter.
+        """Initialize Jest adapter.
 
         Args:
             config_or_project_root: Either an AdapterConfig object or project root path.
-            config_file: Path to vitest config (vitest.config.ts, vitest.config.js, etc.).
+            config_file: Path to jest config (jest.config.js, jest.config.ts, etc.).
             timeout: Default timeout in seconds.
         """
         super().__init__(config_or_project_root)
 
-        # Extract Vitest-specific settings from config or use legacy params
+        # Extract Jest-specific settings from config or use legacy params
         if isinstance(config_or_project_root, AdapterConfig):
-            self.config_file = self.config.get("config_file", "vitest.config.ts")
+            self.config_file = self.config.get("config_file", None)
             self.timeout = self.config.timeout or self.config.get("timeout", 60)
         else:
             # Legacy initialization
             self.config_file = config_file
             self.timeout = timeout
 
-        self._npx_path: Optional[str] = None
-
-    def _get_npx_path(self) -> str:
-        """Get path to npx executable."""
-        if self._npx_path is None:
-            self._npx_path = shutil.which("npx")
-            if not self._npx_path:
-                raise RuntimeError("npx not found in PATH. Install Node.js from https://nodejs.org/")
-        return self._npx_path
-
     def _build_base_command(self) -> List[str]:
-        """Build base vitest command."""
-        cmd = [self._get_npx_path(), "vitest", "run"]
+        """Build base jest command."""
+        cmd = [self._get_npx_path(), "jest"]
 
-        config_path = Path(self.project_root) / self.config_file
-        if config_path.exists():
-            cmd.extend(["--config", str(config_path)])
+        if self.config_file:
+            config_path = Path(self.project_root) / self.config_file
+            if config_path.exists():
+                cmd.extend(["--config", str(config_path)])
 
         return cmd
 
@@ -94,10 +85,9 @@ class VitestAdapter(BaseAdapter):
         app: Optional[str] = None,
         file: Optional[str] = None,
     ) -> List[TestItem]:
-        """Discover Vitest tests using --list flag (Vitest 1.0+)."""
+        """Discover Jest tests using --listTests flag."""
         cmd = self._build_base_command()
-        # Use --reporter=json for discovery
-        cmd.extend(["--reporter=json", "--passWithNoTests"])
+        cmd.extend(["--listTests", "--json"])
 
         if file:
             cmd.append(file)
@@ -111,31 +101,30 @@ class VitestAdapter(BaseAdapter):
                 timeout=60,
             )
 
-            # Parse JSON output
+            # Parse JSON output - Jest returns array of test file paths
             tests = []
             if result.stdout:
                 try:
+                    # Jest --listTests --json returns array of file paths
                     data = json.loads(result.stdout)
-                    for test_file in data.get("testResults", []):
-                        file_path = test_file.get("name", "")
-                        for assertion in test_file.get("assertionResults", []):
-                            test_id = assertion.get("fullName", assertion.get("title", ""))
-                            ancestors = assertion.get("ancestorTitles", [])
-                            suite = " > ".join(ancestors) if ancestors else None
-
+                    if isinstance(data, list):
+                        for test_file in data:
                             tests.append(TestItem(
-                                id=test_id,
-                                name=assertion.get("title", ""),
-                                path=file_path,
-                                markers=["vitest", "unit"],
-                                metadata={
-                                    "suite": suite,
-                                    "duration": assertion.get("duration"),
-                                },
-                                suite=suite,
+                                id=test_file,
+                                name=Path(test_file).name,
+                                path=test_file,
+                                markers=["jest", "unit"],
                             ))
                 except json.JSONDecodeError:
-                    logger.warning("Could not parse Vitest JSON output for discovery")
+                    # Try line-by-line parsing
+                    for line in result.stdout.strip().split("\n"):
+                        if line.strip() and line.strip().endswith((".js", ".ts", ".jsx", ".tsx")):
+                            tests.append(TestItem(
+                                id=line.strip(),
+                                name=Path(line.strip()).name,
+                                path=line.strip(),
+                                markers=["jest", "unit"],
+                            ))
 
             return tests
 
@@ -143,7 +132,7 @@ class VitestAdapter(BaseAdapter):
             logger.error("Test discovery timed out")
             return []
         except FileNotFoundError:
-            logger.error("npx or vitest not found")
+            logger.error("npx or jest not found")
             return []
 
     def execute(
@@ -155,12 +144,37 @@ class VitestAdapter(BaseAdapter):
         verbose: bool = False,
         timeout: Optional[int] = None,
     ) -> TestResult:
-        """Execute Vitest tests and return results."""
+        """Execute Jest tests and return structured results.
+
+        Runs Jest via npx with JSON reporter and parses the output into
+        a unified TestResult format.
+
+        Args:
+            tests: Optional list of specific test files to run.
+                   If None, runs all tests discovered by Jest.
+            parallel: Enable parallel execution (Jest default). Set to False
+                      to use --runInBand for serial execution.
+            coverage: Enable coverage collection via --coverage flag.
+            failfast: Stop on first failure via --bail flag.
+            verbose: Enable verbose output via --verbose flag.
+            timeout: Maximum execution time in seconds. Defaults to adapter's
+                     configured timeout. Subprocess is killed after timeout.
+
+        Returns:
+            TestResult with parsed Jest results including:
+            - Test counts from numPassedTests/numFailedTests
+            - Failure details from assertionResults
+            - Duration and exit code
+
+        Note:
+            Jest runs in parallel by default. Set parallel=False to disable.
+            If JSON parsing fails, falls back to exit-code-based result.
+        """
         start_time = time.time()
         cmd = self._build_base_command()
 
         # Use JSON reporter for structured output
-        cmd.extend(["--reporter=json"])
+        cmd.append("--json")
 
         if coverage:
             cmd.append("--coverage")
@@ -168,9 +182,12 @@ class VitestAdapter(BaseAdapter):
         if failfast:
             cmd.append("--bail")
 
-        # Vitest runs in parallel by default, use --no-threads to disable
+        if verbose:
+            cmd.append("--verbose")
+
+        # Jest runs in parallel by default, use --runInBand to disable
         if not parallel:
-            cmd.append("--no-threads")
+            cmd.append("--runInBand")
 
         # Add specific test files if provided
         if tests:
@@ -220,7 +237,7 @@ class VitestAdapter(BaseAdapter):
                 failures=[TestFailure(
                     test_id="setup",
                     test_name="Environment",
-                    message="npx or vitest not found in PATH",
+                    message="npx or jest not found in PATH",
                 )],
             )
 
@@ -233,23 +250,23 @@ class VitestAdapter(BaseAdapter):
         verbose: bool = False,
         timeout: Optional[int] = None,
     ) -> List[str]:
-        """Get the Vitest command that would be used to run tests.
+        """Get the Jest command that would be used to run tests.
 
         Args:
             tests: Specific test items to run (None = run all)
-            parallel: Enable parallel test execution (default in Vitest)
+            parallel: Enable parallel test execution (default in Jest)
             coverage: Enable coverage collection
             failfast: Stop on first failure (--bail)
             verbose: Enable verbose output
-            timeout: Not used (Vitest has its own timeout config)
+            timeout: Not used (Jest has its own timeout config)
 
         Returns:
-            List of command arguments (e.g., ['npx', 'vitest', 'run', ...])
+            List of command arguments (e.g., ['npx', 'jest', ...])
         """
         cmd = self._build_base_command()
 
         # Use JSON reporter for structured output
-        cmd.extend(["--reporter=json"])
+        cmd.append("--json")
 
         if coverage:
             cmd.append("--coverage")
@@ -257,8 +274,11 @@ class VitestAdapter(BaseAdapter):
         if failfast:
             cmd.append("--bail")
 
+        if verbose:
+            cmd.append("--verbose")
+
         if not parallel:
-            cmd.append("--no-threads")
+            cmd.append("--runInBand")
 
         # Add specific test files if provided
         if tests:
@@ -275,7 +295,7 @@ class VitestAdapter(BaseAdapter):
         exit_code: int,
         duration: float,
     ) -> TestResult:
-        """Parse Vitest JSON reporter output."""
+        """Parse Jest JSON output."""
         passed = 0
         failed = 0
         skipped = 0
@@ -286,7 +306,7 @@ class VitestAdapter(BaseAdapter):
             # Try to parse JSON output
             data = json.loads(stdout)
 
-            # Extract stats from Vitest JSON format
+            # Extract stats from Jest JSON format
             passed = data.get("numPassedTests", 0)
             failed = data.get("numFailedTests", 0)
             skipped = data.get("numPendingTests", 0) + data.get("numTodoTests", 0)
@@ -305,7 +325,7 @@ class VitestAdapter(BaseAdapter):
                             test_id=assertion.get("fullName", assertion.get("title", "")),
                             test_name=assertion.get("title", ""),
                             message=message,
-                            traceback=message,  # Vitest includes stack in failure message
+                            traceback=message,  # Jest includes stack in failure message
                             duration=(assertion.get("duration") or 0) / 1000,  # Convert ms to seconds
                             metadata={
                                 "file": file_path,
@@ -321,12 +341,12 @@ class VitestAdapter(BaseAdapter):
                 duration=duration,
                 exit_code=exit_code,
                 failures=failures,
-                parsed_from="vitest",
+                parsed_from="jest",
             )
 
         except json.JSONDecodeError:
             # Fall back to exit code based result
-            logger.warning("Could not parse Vitest JSON output, using exit code")
+            logger.warning("Could not parse Jest JSON output, using exit code")
 
             if exit_code == 0:
                 passed = 1
@@ -336,7 +356,7 @@ class VitestAdapter(BaseAdapter):
                 error_msg = stderr.strip() if stderr else stdout.strip() if stdout else "Tests failed"
                 failures.append(TestFailure(
                     test_id="unknown",
-                    test_name="Vitest Tests",
+                    test_name="Jest Tests",
                     message=error_msg[:500],  # Truncate long messages
                 ))
 
@@ -349,38 +369,50 @@ class VitestAdapter(BaseAdapter):
                 exit_code=exit_code,
                 failures=failures,
                 parsed_from="fallback",
-                parsing_warning="Could not parse Vitest JSON output",
+                parsing_warning="Could not parse Jest JSON output",
             )
 
     def get_available_markers(self) -> List[str]:
         """Return available test markers/tags."""
-        return ["vitest", "unit", "integration", "component"]
+        return ["jest", "unit", "integration", "snapshot"]
 
     def validate_environment(self) -> bool:
-        """Validate Vitest is installed and configured."""
+        """Validate Jest is installed and configured."""
         # Check npx is available
         try:
             self._get_npx_path()
         except RuntimeError:
             return False
 
-        # Check vitest config exists
-        config_path = Path(self.project_root) / self.config_file
-        if not config_path.exists():
-            # Try common alternative names
-            alternatives = [
-                "vitest.config.js",
-                "vitest.config.mjs",
-                "vitest.config.mts",
-                "vite.config.ts",
-                "vite.config.js",
+        # Check jest config exists (optional - Jest can work without explicit config)
+        if self.config_file:
+            config_path = Path(self.project_root) / self.config_file
+            if not config_path.exists():
+                logger.warning(f"Jest config not found at {config_path}")
+                # Still return True as Jest can work without config
+                return True
+        else:
+            # Try to find common config files
+            common_configs = [
+                "jest.config.js",
+                "jest.config.ts",
+                "jest.config.mjs",
+                "jest.config.cjs",
             ]
-            for alt in alternatives:
-                if (Path(self.project_root) / alt).exists():
-                    self.config_file = alt
+            for config in common_configs:
+                if (Path(self.project_root) / config).exists():
+                    self.config_file = config
                     return True
-            logger.warning(f"Vitest config not found at {config_path}")
-            # Still return True as Vitest can work without explicit config
-            return True
+
+            # Check package.json for jest config
+            package_json = Path(self.project_root) / "package.json"
+            if package_json.exists():
+                try:
+                    with open(package_json) as f:
+                        pkg = json.load(f)
+                        if "jest" in pkg:
+                            return True
+                except (json.JSONDecodeError, IOError):
+                    pass
 
         return True

@@ -76,7 +76,39 @@ class BaseAdapter(ABC):
         verbose: bool = False,
         timeout: Optional[int] = None,
     ) -> TestResult:
-        """Execute tests and return results."""
+        """Execute tests and return structured results.
+
+        Runs the specified tests (or all tests if none specified) using the
+        framework-specific test runner and returns a unified TestResult.
+
+        Args:
+            tests: Optional list of specific TestItem objects to run.
+                   If None, runs all discovered tests.
+            parallel: Enable parallel test execution. Implementation depends
+                      on framework support (pytest-xdist, Jest workers, etc.).
+            coverage: Enable code coverage collection. Requires framework-specific
+                      coverage plugins (pytest-cov, Jest --coverage, etc.).
+            failfast: Stop execution on first test failure. Useful for rapid
+                      feedback during development.
+            verbose: Enable verbose output from the test runner.
+            timeout: Maximum execution time in seconds. Implementation varies
+                     by adapter (subprocess timeout, framework timeout, etc.).
+
+        Returns:
+            TestResult containing:
+            - passed/failed/errors/skipped counts
+            - duration in seconds
+            - exit_code (0=pass, 1=fail, 2=error)
+            - failures list with TestFailure details
+            - verdict (PASS, FAIL, or ERROR)
+
+        Note:
+            Implementations should:
+            - Handle subprocess timeouts gracefully
+            - Parse framework-specific output to TestResult
+            - Include failure details with test IDs and messages
+            - Never raise exceptions for test failures (return them in result)
+        """
         pass
 
     @abstractmethod

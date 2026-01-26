@@ -203,7 +203,34 @@ class PlaywrightAdapter(BaseAdapter):
         verbose: bool = False,
         timeout: Optional[int] = None,
     ) -> TestResult:
-        """Execute Playwright tests and return results."""
+        """Execute Playwright browser tests and return structured results.
+
+        Runs Playwright tests via npx with JSON reporter and parses the
+        output into a unified TestResult format.
+
+        Args:
+            tests: Optional list of specific test files to run.
+                   If None, runs all tests discovered by Playwright.
+            parallel: Enable parallel workers via --workers=auto flag.
+                      Set to False for --workers=1 (serial execution).
+            coverage: Not applicable for Playwright E2E tests.
+            failfast: Stop on first failure via --max-failures=1.
+            verbose: Not directly used (Playwright output is JSON).
+            timeout: Maximum execution time in seconds. Subprocess timeout
+                     is multiplied by SUBPROCESS_TIMEOUT_MULTIPLIER to allow
+                     Playwright's internal timeouts to complete first.
+
+        Returns:
+            TestResult with parsed Playwright results including:
+            - Test counts from stats.expected/unexpected/skipped
+            - Failure details extracted from suite results
+            - Duration and exit code
+
+        Note:
+            Playwright timeouts are in milliseconds internally. The adapter
+            converts seconds to milliseconds as needed. Uses JSON reporter
+            for structured output parsing.
+        """
         start_time = time.time()
         cmd = self._build_base_command()
 

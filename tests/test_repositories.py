@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from systemeval.adapters.repositories import (
+from systemeval.adapters import (
     DjangoProjectRepository,
     MockProjectRepository,
     ProjectRepository,

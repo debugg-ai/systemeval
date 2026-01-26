@@ -222,18 +222,18 @@ class TestPipelineAdapterImport:
 
     def test_pipeline_adapter_can_be_imported(self):
         """Test that PipelineAdapter can be imported."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
         assert PipelineAdapter is not None
 
     def test_pipeline_adapter_has_criteria(self):
         """Test that PipelineAdapter has CRITERIA defined."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
         assert hasattr(PipelineAdapter, "CRITERIA")
         assert isinstance(PipelineAdapter.CRITERIA, dict)
 
     def test_criteria_contains_expected_keys(self):
         """Test that CRITERIA contains all expected keys."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
         expected_keys = [
             "build_status",
             "container_healthy",
@@ -250,14 +250,14 @@ class TestPipelineAdapterInit:
 
     def test_adapter_accepts_repository_injection(self, temp_project_dir, mock_repository):
         """Test that PipelineAdapter accepts injected repository."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
         assert adapter._repository is mock_repository
 
     def test_adapter_stores_project_root(self, temp_project_dir, mock_repository):
         """Test that PipelineAdapter stores project root."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
         assert adapter.project_root == temp_project_dir
@@ -273,62 +273,62 @@ class TestPipelineAdapterCriteria:
 
     def test_build_status_succeeded_passes(self):
         """Test build_status passes when 'succeeded'."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
         assert PipelineAdapter.CRITERIA["build_status"]("succeeded") is True
 
     def test_build_status_failed_fails(self):
         """Test build_status fails when not 'succeeded'."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
         assert PipelineAdapter.CRITERIA["build_status"]("failed") is False
         assert PipelineAdapter.CRITERIA["build_status"]("error") is False
         assert PipelineAdapter.CRITERIA["build_status"](None) is False
 
     def test_container_healthy_true_passes(self):
         """Test container_healthy passes when True."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
         assert PipelineAdapter.CRITERIA["container_healthy"](True) is True
 
     def test_container_healthy_false_fails(self):
         """Test container_healthy fails when False."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
         assert PipelineAdapter.CRITERIA["container_healthy"](False) is False
         assert PipelineAdapter.CRITERIA["container_healthy"](None) is False
 
     def test_kg_exists_true_passes(self):
         """Test kg_exists passes when True."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
         assert PipelineAdapter.CRITERIA["kg_exists"](True) is True
 
     def test_kg_exists_false_fails(self):
         """Test kg_exists fails when False."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
         assert PipelineAdapter.CRITERIA["kg_exists"](False) is False
 
     def test_kg_pages_positive_passes(self):
         """Test kg_pages passes when > 0."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
         assert PipelineAdapter.CRITERIA["kg_pages"](1) is True
         assert PipelineAdapter.CRITERIA["kg_pages"](100) is True
 
     def test_kg_pages_zero_fails(self):
         """Test kg_pages fails when 0."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
         assert PipelineAdapter.CRITERIA["kg_pages"](0) is False
 
     def test_kg_pages_none_fails(self):
         """Test kg_pages fails when None."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
         assert PipelineAdapter.CRITERIA["kg_pages"](None) is False
 
     def test_e2e_error_rate_zero_passes(self):
         """Test e2e_error_rate passes when 0."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
         assert PipelineAdapter.CRITERIA["e2e_error_rate"](0) is True
         assert PipelineAdapter.CRITERIA["e2e_error_rate"](0.0) is True
 
     def test_e2e_error_rate_positive_fails(self):
         """Test e2e_error_rate fails when > 0."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
         assert PipelineAdapter.CRITERIA["e2e_error_rate"](1) is False
         assert PipelineAdapter.CRITERIA["e2e_error_rate"](0.5) is False
         assert PipelineAdapter.CRITERIA["e2e_error_rate"](100) is False
@@ -346,7 +346,7 @@ class TestValidateEnvironment:
         self, temp_project_dir, mock_repository
     ):
         """Test validate_environment returns True with a configured repository."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
         result = adapter.validate_environment()
@@ -355,7 +355,7 @@ class TestValidateEnvironment:
 
     def test_validate_environment_returns_false_without_repository(self, temp_project_dir):
         """Test validate_environment returns False without repository."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=None)
         adapter._repository = None  # Ensure no repository
@@ -376,7 +376,7 @@ class TestMetricsValidation:
         self, temp_project_dir, mock_repository, passing_pipeline_metrics
     ):
         """Test _metrics_pass returns True for passing metrics."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
         result = adapter._metrics_pass(passing_pipeline_metrics)
@@ -387,7 +387,7 @@ class TestMetricsValidation:
         self, temp_project_dir, mock_repository, failing_pipeline_metrics
     ):
         """Test _metrics_pass returns False for failing metrics."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
         result = adapter._metrics_pass(failing_pipeline_metrics)
@@ -398,7 +398,7 @@ class TestMetricsValidation:
         self, temp_project_dir, mock_repository, passing_pipeline_metrics
     ):
         """Test _metrics_pass returns False if single criterion fails."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
 
@@ -412,7 +412,7 @@ class TestMetricsValidation:
         self, temp_project_dir, mock_repository
     ):
         """Test _get_failure_message for build failure."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
         metrics = {
@@ -431,7 +431,7 @@ class TestMetricsValidation:
         self, temp_project_dir, mock_repository
     ):
         """Test _get_failure_message for container failure."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
         metrics = {
@@ -448,7 +448,7 @@ class TestMetricsValidation:
 
     def test_get_failure_message_for_kg_failure(self, temp_project_dir, mock_repository):
         """Test _get_failure_message for knowledge graph failure."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
         metrics = {
@@ -465,7 +465,7 @@ class TestMetricsValidation:
 
     def test_get_failure_message_for_e2e_failure(self, temp_project_dir, mock_repository):
         """Test _get_failure_message for E2E error rate failure."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
         metrics = {
@@ -484,7 +484,7 @@ class TestMetricsValidation:
         self, temp_project_dir, mock_repository, failing_pipeline_metrics
     ):
         """Test _get_failure_message combines multiple failures."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
         message = adapter._get_failure_message(failing_pipeline_metrics)
@@ -494,7 +494,7 @@ class TestMetricsValidation:
 
     def test_get_failure_message_kg_pages_failure(self, temp_project_dir, mock_repository):
         """Test _get_failure_message for kg_pages failure."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
         metrics = {
@@ -513,7 +513,7 @@ class TestMetricsValidation:
         self, temp_project_dir, mock_repository
     ):
         """Test _get_failure_message returns 'Unknown failure' when all pass."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
         metrics = {
@@ -541,7 +541,7 @@ class TestGetAvailableMarkers:
         self, temp_project_dir, mock_repository
     ):
         """Test get_available_markers returns expected markers."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
         markers = adapter.get_available_markers()
@@ -559,7 +559,7 @@ class TestDiscover:
 
     def test_discover_returns_test_items(self, temp_project_dir, mock_repository):
         """Test discover returns list of TestItems."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
         tests = adapter.discover()
@@ -572,7 +572,7 @@ class TestDiscover:
 
     def test_discover_includes_markers(self, temp_project_dir, mock_repository):
         """Test discover includes pipeline markers."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
         tests = adapter.discover()
@@ -582,7 +582,7 @@ class TestDiscover:
 
     def test_discover_includes_metadata(self, temp_project_dir, mock_repository):
         """Test discover includes project metadata."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
         tests = adapter.discover()
@@ -594,7 +594,7 @@ class TestDiscover:
 
     def test_discover_handles_no_projects(self, temp_project_dir, empty_repository):
         """Test discover returns empty list when no projects."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=empty_repository)
         tests = adapter.discover()
@@ -605,7 +605,7 @@ class TestDiscover:
         self, temp_project_dir, mock_repository_multi_project
     ):
         """Test discover returns all projects."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository_multi_project)
         tests = adapter.discover()
@@ -627,7 +627,7 @@ class TestExecute:
         self, temp_project_dir, mock_repository, passing_pipeline_metrics
     ):
         """Test execute returns TestResult."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
         adapter._evaluate_project = MagicMock(return_value=passing_pipeline_metrics)
@@ -643,7 +643,7 @@ class TestExecute:
         self, temp_project_dir, mock_repository, failing_pipeline_metrics
     ):
         """Test execute with failing project."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
         adapter._evaluate_project = MagicMock(return_value=failing_pipeline_metrics)
@@ -659,7 +659,7 @@ class TestExecute:
         self, temp_project_dir, mock_repository_multi_project, passing_pipeline_metrics
     ):
         """Test execute filters by project slugs."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository_multi_project)
         adapter._evaluate_project = MagicMock(return_value=passing_pipeline_metrics)
@@ -674,7 +674,7 @@ class TestExecute:
         self, temp_project_dir, empty_repository
     ):
         """Test execute with no projects returns error result."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=empty_repository)
         result = adapter.execute()
@@ -689,7 +689,7 @@ class TestExecute:
         failing_pipeline_metrics, passing_pipeline_metrics
     ):
         """Test execute stops on first failure with failfast."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository_multi_project)
         adapter._evaluate_project = MagicMock(
@@ -707,7 +707,7 @@ class TestExecute:
         self, temp_project_dir, mock_repository
     ):
         """Test execute handles exception during evaluation."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
         adapter._evaluate_project = MagicMock(side_effect=Exception("Evaluation failed"))
@@ -722,7 +722,7 @@ class TestExecute:
         self, temp_project_dir, mock_repository, passing_pipeline_metrics
     ):
         """Test execute stores pipeline data on result for detailed evaluation."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
         adapter._evaluate_project = MagicMock(return_value=passing_pipeline_metrics)
@@ -747,7 +747,7 @@ class TestEvaluateProject:
         self, temp_project_dir, mock_repository, passing_pipeline_metrics
     ):
         """Test _evaluate_project triggers webhook."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
         adapter._trigger_webhook = MagicMock(return_value=True)
@@ -772,7 +772,7 @@ class TestEvaluateProject:
         self, temp_project_dir, mock_repository, passing_pipeline_metrics
     ):
         """Test _evaluate_project skips webhook in skip_build mode."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
         adapter._trigger_webhook = MagicMock(return_value=True)
@@ -796,7 +796,7 @@ class TestEvaluateProject:
         self, temp_project_dir, mock_repository
     ):
         """Test _evaluate_project returns error metrics when webhook fails."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
         adapter._trigger_webhook = MagicMock(return_value=False)
@@ -820,7 +820,7 @@ class TestEvaluateProject:
         self, temp_project_dir, mock_repository, passing_pipeline_metrics
     ):
         """Test _evaluate_project polls and collects metrics."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
         adapter._trigger_webhook = MagicMock(return_value=True)
@@ -853,7 +853,7 @@ class TestFindProject:
 
     def test_find_project_by_slug(self, temp_project_dir, mock_repository, mock_project_instance):
         """Test _find_project finds project by slug."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
         result = adapter._find_project("test-project")
@@ -865,7 +865,7 @@ class TestFindProject:
 
     def test_find_project_by_partial_name(self, temp_project_dir, mock_repository, mock_project_instance):
         """Test _find_project finds project by partial name."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
         result = adapter._find_project("test")
@@ -879,7 +879,7 @@ class TestFindProject:
         self, temp_project_dir, mock_repository
     ):
         """Test _find_project returns None when not found."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
         result = adapter._find_project("nonexistent")
@@ -899,7 +899,7 @@ class TestCreateEvaluationResult:
         self, temp_project_dir, mock_repository, passing_pipeline_metrics
     ):
         """Test create_evaluation_result creates valid EvaluationResult."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
 
@@ -921,7 +921,7 @@ class TestCreateEvaluationResult:
         self, temp_project_dir, mock_repository, passing_pipeline_metrics
     ):
         """Test create_evaluation_result includes sessions."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
 
@@ -948,7 +948,7 @@ class TestCreateEvaluationResult:
         self, temp_project_dir, mock_repository, passing_pipeline_metrics
     ):
         """Test create_evaluation_result includes all metrics."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
 
@@ -974,7 +974,7 @@ class TestCreateEvaluationResult:
         self, temp_project_dir, mock_repository, passing_pipeline_metrics
     ):
         """Test create_evaluation_result sets correct metric conditions."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
 
@@ -999,7 +999,7 @@ class TestCreateEvaluationResult:
         self, temp_project_dir, mock_repository, failing_pipeline_metrics
     ):
         """Test create_evaluation_result with failing metrics."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
 
@@ -1023,7 +1023,7 @@ class TestCreateEvaluationResult:
         self, temp_project_dir, mock_repository, failing_pipeline_metrics
     ):
         """Test create_evaluation_result includes diagnostics in metadata."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
 
@@ -1044,7 +1044,7 @@ class TestCreateEvaluationResult:
         self, temp_project_dir, mock_repository
     ):
         """Test create_evaluation_result includes pipeline stages."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         metrics = {
             "build_status": "succeeded",
@@ -1079,7 +1079,7 @@ class TestCreateEvaluationResult:
         self, temp_project_dir, mock_repository
     ):
         """Test create_evaluation_result includes surfer metadata."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         metrics = {
             "build_status": "succeeded",
@@ -1112,7 +1112,7 @@ class TestCreateEvaluationResult:
         self, temp_project_dir, mock_repository
     ):
         """Test create_evaluation_result includes E2E details."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         metrics = {
             "build_status": "succeeded",
@@ -1150,7 +1150,7 @@ class TestCreateEvaluationResult:
         self, temp_project_dir, mock_repository
     ):
         """Test create_evaluation_result handles empty metrics gracefully."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
 
@@ -1178,7 +1178,7 @@ class TestPipelineAdapterIntegration:
         self, temp_project_dir, mock_repository, passing_pipeline_metrics
     ):
         """Test complete workflow with passing project."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
         adapter._evaluate_project = MagicMock(return_value=passing_pipeline_metrics)
@@ -1203,7 +1203,7 @@ class TestPipelineAdapterIntegration:
         self, temp_project_dir, mock_repository, failing_pipeline_metrics
     ):
         """Test complete workflow with failing project."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
         adapter._evaluate_project = MagicMock(return_value=failing_pipeline_metrics)
@@ -1228,7 +1228,7 @@ class TestPipelineAdapterIntegration:
         self, temp_project_dir, mock_repository, passing_pipeline_metrics
     ):
         """Test that EvaluationResult is JSON serializable."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
 
@@ -1405,7 +1405,7 @@ class TestEdgeCases:
 
     def test_metrics_pass_with_none_values(self, temp_project_dir, mock_repository):
         """Test _metrics_pass handles None values in metrics."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
 
@@ -1423,7 +1423,7 @@ class TestEdgeCases:
 
     def test_metrics_pass_with_missing_keys(self, temp_project_dir, mock_repository):
         """Test _metrics_pass handles missing keys in metrics."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
 
@@ -1436,7 +1436,7 @@ class TestEdgeCases:
 
     def test_empty_test_list_execute(self, temp_project_dir, empty_repository):
         """Test execute with empty project list."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=empty_repository)
 
@@ -1449,7 +1449,7 @@ class TestEdgeCases:
         self, temp_project_dir, mock_repository, passing_pipeline_metrics
     ):
         """Test that project slug filtering is case-insensitive."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
         adapter._evaluate_project = MagicMock(return_value=passing_pipeline_metrics)
@@ -1463,7 +1463,7 @@ class TestEdgeCases:
         self, temp_project_dir, mock_repository, passing_pipeline_metrics
     ):
         """Test that projects can be matched by partial name."""
-        from systemeval.adapters.pipeline_adapter import PipelineAdapter
+        from systemeval.adapters import PipelineAdapter
 
         adapter = PipelineAdapter(temp_project_dir, repository=mock_repository)
         adapter._evaluate_project = MagicMock(return_value=passing_pipeline_metrics)

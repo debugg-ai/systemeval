@@ -16,7 +16,7 @@ try:
 except ImportError:
     PYTEST_AVAILABLE = False
 
-from .base import AdapterConfig, BaseAdapter, TestFailure, TestItem, TestResult
+from systemeval.adapters.base import AdapterConfig, BaseAdapter, TestFailure, TestItem, TestResult
 from systemeval.utils import working_directory
 from systemeval.utils.django import detect_django_settings
 from systemeval.utils.logging import get_logger
