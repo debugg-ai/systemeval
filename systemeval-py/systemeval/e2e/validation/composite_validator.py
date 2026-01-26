@@ -165,5 +165,32 @@ class E2EConfigValidator:
             warnings=warnings,
         )
 
+    # ========================================================================
+    # Backward Compatibility Delegation Methods
+    # ========================================================================
+    # After Phase 2 reorganization, validation methods were moved to
+    # BaseE2EValidator. These delegation methods maintain backward
+    # compatibility for tests expecting direct method access.
+
+    def validate_required_fields(self, config: E2EConfig) -> ValidationResult:
+        """Delegate to base validator (backward compatibility)."""
+        return self._base_validator.validate_required_fields(config)
+
+    def validate_paths(self, config: E2EConfig) -> ValidationResult:
+        """Delegate to base validator (backward compatibility)."""
+        return self._base_validator.validate_paths(config)
+
+    def validate_urls(self, config: E2EConfig) -> ValidationResult:
+        """Delegate to base validator (backward compatibility)."""
+        return self._base_validator.validate_urls(config)
+
+    def validate_timeouts(self, config: E2EConfig) -> ValidationResult:
+        """Delegate to base validator (backward compatibility)."""
+        return self._base_validator.validate_timeouts(config)
+
+    def validate_test_framework(self, config: E2EConfig) -> ValidationResult:
+        """Delegate to base validator (backward compatibility)."""
+        return self._base_validator.validate_test_framework(config)
+
 
 __all__ = ["E2EConfigValidator"]
