@@ -16,7 +16,7 @@ from pathlib import Path
 from click.testing import CliRunner
 from unittest.mock import patch, MagicMock
 
-from systemeval.cli import main
+from systemeval.cli_main import main
 from systemeval.e2e.types import (
     E2EConfig as E2ETypesConfig,
     ChangeSet,

@@ -25,7 +25,7 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
-from systemeval.cli import main
+from systemeval.cli_main import main
 from tests.fixtures import (
     MockDebuggAIServer,
 )

@@ -5,7 +5,7 @@ import pytest
 from click.testing import CliRunner
 from unittest.mock import patch, MagicMock
 
-from systemeval.cli import main, _display_results
+from systemeval.cli_main import main, _display_results
 from systemeval.adapters import TestResult, Verdict
 from systemeval.core.evaluation import SCHEMA_VERSION
 
