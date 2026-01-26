@@ -1,0 +1,213 @@
+#!/bin/bash
+# =============================================================================
+# syseval - Terminal wrapper for systemeval CLI
+# =============================================================================
+# This script provides convenient access to systemeval from anywhere in the
+# project, handling Docker context and configuration discovery automatically.
+#
+# Usage:
+#   syseval test                                    # Run default tests
+#   syseval test --category unit                    # Run unit tests
+#   syseval test --projects crochet-patterns        # Pipeline evaluation
+#   syseval test --env backend                      # Run in Docker env
+#   syseval test --template pipeline_diagnostic    # Custom output format
+#   syseval list categories                         # List test categories
+#   syseval list environments                       # List environments
+#   syseval list templates                          # List output templates
+#   syseval list adapters                           # List adapters
+#
+# Environment Variables:
+#   SYSEVAL_COMPOSE_FILE - Docker compose file (default: local.yml)
+#   SYSEVAL_SERVICE      - Docker service name (default: django)
+#   SYSEVAL_WORKDIR      - Working directory in container (default: /app)
+#   SYSEVAL_VERBOSE      - Enable verbose output (default: false)
+
+set -e
+
+# Configuration with defaults
+COMPOSE_FILE="${SYSEVAL_COMPOSE_FILE:-local.yml}"
+SERVICE="${SYSEVAL_SERVICE:-django}"
+WORKDIR="${SYSEVAL_WORKDIR:-/app}"
+VERBOSE="${SYSEVAL_VERBOSE:-false}"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+DIM='\033[2m'
+NC='\033[0m' # No Color
+
+# Find the sentinal directory (where docker-compose files are)
+find_sentinal_dir() {
+    local dir="$PWD"
+
+    # Walk up looking for local.yml
+    while [[ "$dir" != "/" ]]; do
+        if [[ -f "$dir/local.yml" ]]; then
+            echo "$dir"
+            return 0
+        fi
+        if [[ -f "$dir/sentinal/local.yml" ]]; then
+            echo "$dir/sentinal"
+            return 0
+        fi
+        dir="$(dirname "$dir")"
+    done
+
+    # Check common locations
+    if [[ -f "$HOME/Documents/Github/debugg-ai/full-platform/sentinal/local.yml" ]]; then
+        echo "$HOME/Documents/Github/debugg-ai/full-platform/sentinal"
+        return 0
+    fi
+
+    return 1
+}
+
+# Check if Docker is running
+check_docker() {
+    if ! docker info &>/dev/null; then
+        echo -e "${RED}Error: Docker is not running${NC}" >&2
+        exit 1
+    fi
+}
+
+# Check if the Django container is running
+check_container() {
+    local sentinal_dir="$1"
+
+    cd "$sentinal_dir"
+
+    if ! docker-compose -f "$COMPOSE_FILE" ps "$SERVICE" 2>/dev/null | grep -q "Up"; then
+        echo -e "${YELLOW}Warning: Django container may not be running${NC}" >&2
+        echo -e "${YELLOW}Start with: cd $sentinal_dir && docker-compose -f $COMPOSE_FILE up -d${NC}" >&2
+    fi
+}
+
+# Print usage help
+print_help() {
+    cat << EOF
+${CYAN}syseval - SystemEval CLI Wrapper${NC}
+
+${YELLOW}USAGE:${NC}
+    syseval <command> [options]
+
+${YELLOW}COMMANDS:${NC}
+    test              Run tests (default command)
+    list <item>       List available items (categories, environments, templates, adapters)
+    init              Initialize systemeval.yaml
+    validate          Validate configuration
+    help              Show this help message
+
+${YELLOW}TEST OPTIONS:${NC}
+    --category, -c    Test category (unit, integration, api, browser, pipeline)
+    --app, -a         Specific app/module to test
+    --file, -f        Specific test file to run
+    --parallel, -p    Run tests in parallel
+    --coverage        Collect coverage data
+    --failfast, -x    Stop on first failure
+    --verbose, -v     Verbose output
+    --json            Output results as JSON
+    --template, -t    Output template (summary, markdown, ci, github, pipeline_*)
+
+${YELLOW}ENVIRONMENT OPTIONS:${NC}
+    --env, -e         Environment to run in (backend, browser, full-stack)
+    --suite, -s       Test suite to run
+    --keep-running    Keep containers running after tests
+
+${YELLOW}PIPELINE OPTIONS:${NC}
+    --projects        Project slugs to evaluate
+    --timeout         Max wait time per project (default: 600)
+    --poll-interval   Seconds between checks (default: 15)
+    --sync            Run webhooks synchronously
+    --skip-build      Skip build, use existing containers
+
+${YELLOW}EXAMPLES:${NC}
+    # Run unit tests
+    syseval test --category unit
+
+    # Run pipeline evaluation
+    syseval test --projects crochet-patterns --timeout 600
+
+    # Run with diagnostic output
+    syseval test --projects crochet-patterns --template pipeline_diagnostic
+
+    # Run in Docker environment
+    syseval test --env backend --category integration
+
+    # List available test categories
+    syseval list categories
+
+    # Get JSON output for CI/CD
+    syseval test --json > results.json
+
+${YELLOW}ENVIRONMENT VARIABLES:${NC}
+    SYSEVAL_COMPOSE_FILE    Docker compose file (default: local.yml)
+    SYSEVAL_SERVICE         Service name (default: django)
+    SYSEVAL_WORKDIR         Container working directory (default: /app)
+
+EOF
+}
+
+# Main execution
+main() {
+    # Check for help flag
+    if [[ "$1" == "-h" || "$1" == "--help" || "$1" == "help" || -z "$1" ]]; then
+        print_help
+        exit 0
+    fi
+
+    check_docker
+
+    SENTINAL_DIR=$(find_sentinal_dir)
+    if [[ -z "$SENTINAL_DIR" ]]; then
+        echo -e "${RED}Error: Could not find sentinal directory with $COMPOSE_FILE${NC}" >&2
+        echo "Set SYSEVAL_COMPOSE_FILE or run from within the project directory" >&2
+        exit 1
+    fi
+
+    check_container "$SENTINAL_DIR"
+
+    cd "$SENTINAL_DIR"
+
+    # Build the systemeval command
+    local args=("$@")
+    local has_config=false
+
+    for arg in "${args[@]}"; do
+        if [[ "$arg" == "--config"* ]]; then
+            has_config=true
+            break
+        fi
+    done
+
+    # If running 'test' without explicit config, add default
+    if [[ "${args[0]}" == "test" && "$has_config" == "false" ]]; then
+        args=("${args[0]}" "--config=$WORKDIR/systemeval.yaml" "${args[@]:1}")
+    fi
+
+    # Execute in Docker
+    if [[ "$VERBOSE" == "true" ]]; then
+        echo -e "${BLUE}Running: systemeval ${args[*]}${NC}" >&2
+    fi
+
+    # Run systemeval with output filtering for cleaner results
+    docker-compose -f "$COMPOSE_FILE" exec -T "$SERVICE" bash -c "cd $WORKDIR && systemeval ${args[*]}" 2>&1 | \
+        grep -v "^INFO service\|^INFO apps\|^WARNING pipeline_adapter\|^131 objects"
+
+    exit_code=${PIPESTATUS[0]}
+
+    # Print result banner
+    if [[ $exit_code -eq 0 ]]; then
+        echo -e "\n${GREEN}✓ SystemEval completed successfully${NC}" >&2
+    elif [[ $exit_code -eq 1 ]]; then
+        echo -e "\n${RED}✗ Tests failed (exit code: 1)${NC}" >&2
+    else
+        echo -e "\n${YELLOW}⚠ Error occurred (exit code: $exit_code)${NC}" >&2
+    fi
+
+    exit $exit_code
+}
+
+main "$@"

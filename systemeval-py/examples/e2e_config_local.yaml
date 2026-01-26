@@ -1,0 +1,49 @@
+# E2E Configuration Example - Local Provider
+#
+# This is an example E2E configuration for running tests against local services.
+#
+# CRITICAL PRINCIPLES:
+# 1. No config discovery - this file must be passed explicitly
+# 2. No cascading fallbacks - all values are explicit
+# 3. No magic values - no environment variable lookups
+# 4. Absolute paths - no cwd assumptions
+
+# Provider selection
+provider: local
+
+# Provider-specific configuration
+provider_config:
+  # Base URL for local service - MUST be explicit
+  base_url: "http://localhost:3000"
+
+  # Request timeout (seconds)
+  timeout_seconds: 60
+
+# Output directory - MUST be absolute path
+# NO relative paths, NO cwd assumptions
+output_dir: "/tmp/systemeval-e2e-output"
+
+# Timeout for E2E test execution (seconds)
+timeout_seconds: 60
+
+# Polling interval for status checks (seconds)
+poll_interval_seconds: 2
+
+# Usage Example:
+# --------------
+# python
+# import yaml
+# from pathlib import Path
+# from systemeval.e2e_config import load_e2e_config_from_dict
+#
+# # Caller explicitly reads config file
+# config_path = Path("/explicit/path/to/e2e_config_local.yaml")
+# with open(config_path) as f:
+#     raw_config = yaml.safe_load(f)
+#
+# # Then passes to loader
+# config = load_e2e_config_from_dict(raw_config)
+#
+# # Use in E2E runner
+# runner = LocalE2ERunner(config)
+# result = runner.run()
