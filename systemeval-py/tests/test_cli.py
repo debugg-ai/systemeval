@@ -240,7 +240,7 @@ class TestCLIInit:
 class TestCLITestCommand:
     """Tests for test command (mocked)."""
 
-    @patch("systemeval.cli.find_config_file")
+    @patch("systemeval.cli_main.find_config_file")
     def test_test_no_config(self, mock_find):
         """Test test command with no config."""
         mock_find.return_value = None
@@ -251,9 +251,9 @@ class TestCLITestCommand:
         assert result.exit_code == 2
         assert "no systemeval.yaml" in result.output.lower() or "error" in result.output.lower()
 
-    @patch("systemeval.cli.find_config_file")
-    @patch("systemeval.cli.load_config")
-    @patch("systemeval.cli.get_adapter")
+    @patch("systemeval.cli_main.find_config_file")
+    @patch("systemeval.cli_main.load_config")
+    @patch("systemeval.cli_main.get_adapter")
     def test_test_with_json_output(self, mock_get_adapter, mock_load, mock_find, tmp_path):
         """Test test command with --json flag."""
         # Setup mocks
@@ -336,10 +336,10 @@ class TestEnvModeOption:
         result = runner.invoke(main, ["test", "--help"])
         assert result.exit_code == 0
 
-    @patch("systemeval.cli.find_config_file")
-    @patch("systemeval.cli.load_config")
-    @patch("systemeval.cli.get_environment_type")
-    @patch("systemeval.cli.get_adapter")
+    @patch("systemeval.cli_main.find_config_file")
+    @patch("systemeval.cli_main.load_config")
+    @patch("systemeval.cli_main.get_environment_type")
+    @patch("systemeval.cli_main.get_adapter")
     def test_env_mode_auto_calls_get_environment_type(self, mock_get_adapter, mock_get_env, mock_load, mock_find, tmp_path):
         """Test that --env-mode auto (default) calls get_environment_type."""
         config_file = tmp_path / "systemeval.yaml"
@@ -367,10 +367,10 @@ class TestEnvModeOption:
         # get_environment_type should have been called (default 'auto' mode)
         mock_get_env.assert_called()
 
-    @patch("systemeval.cli.find_config_file")
-    @patch("systemeval.cli.load_config")
-    @patch("systemeval.cli.get_environment_type")
-    @patch("systemeval.cli.get_adapter")
+    @patch("systemeval.cli_main.find_config_file")
+    @patch("systemeval.cli_main.load_config")
+    @patch("systemeval.cli_main.get_environment_type")
+    @patch("systemeval.cli_main.get_adapter")
     def test_env_mode_docker_skips_detection(self, mock_get_adapter, mock_get_env, mock_load, mock_find, tmp_path):
         """Test that --env-mode docker doesn't call get_environment_type."""
         config_file = tmp_path / "systemeval.yaml"
@@ -396,10 +396,10 @@ class TestEnvModeOption:
         # get_environment_type should NOT have been called
         mock_get_env.assert_not_called()
 
-    @patch("systemeval.cli.find_config_file")
-    @patch("systemeval.cli.load_config")
-    @patch("systemeval.cli.get_environment_type")
-    @patch("systemeval.cli.get_adapter")
+    @patch("systemeval.cli_main.find_config_file")
+    @patch("systemeval.cli_main.load_config")
+    @patch("systemeval.cli_main.get_environment_type")
+    @patch("systemeval.cli_main.get_adapter")
     def test_env_mode_local_skips_detection(self, mock_get_adapter, mock_get_env, mock_load, mock_find, tmp_path):
         """Test that --env-mode local doesn't call get_environment_type."""
         config_file = tmp_path / "systemeval.yaml"
