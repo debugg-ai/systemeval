@@ -541,6 +541,63 @@ class ArtifactStorage:
             ).isoformat().replace("+00:00", "Z"),
         }
 
+    # ========================================================================
+    # Backward Compatibility Delegation Methods
+    # ========================================================================
+    # After Phase 2 reorganization, metadata and changeset operations were
+    # moved to separate manager classes. These delegation methods maintain
+    # backward compatibility for code expecting the old monolithic interface.
+
+    def save_metadata(self, run_id: str, metadata: Dict[str, Any]) -> Path:
+        """
+        Save run metadata (delegates to MetadataManager).
+
+        Backward compatibility method. New code should use MetadataManager directly.
+        """
+        from .metadata_manager import MetadataManager
+        manager = MetadataManager(self.output_directory)
+        return manager.save_metadata(run_id, metadata)
+
+    def load_metadata(self, run_id: str) -> Dict[str, Any]:
+        """
+        Load run metadata (delegates to MetadataManager).
+
+        Backward compatibility method. New code should use MetadataManager directly.
+        """
+        from .metadata_manager import MetadataManager
+        manager = MetadataManager(self.output_directory)
+        return manager.load_metadata(run_id)
+
+    def update_metadata(self, run_id: str, updates: Dict[str, Any]) -> Path:
+        """
+        Update run metadata (delegates to MetadataManager).
+
+        Backward compatibility method. New code should use MetadataManager directly.
+        """
+        from .metadata_manager import MetadataManager
+        manager = MetadataManager(self.output_directory)
+        return manager.update_metadata(run_id, updates)
+
+    def save_changeset(self, run_id: str, changeset: Dict[str, Any]) -> Path:
+        """
+        Save changeset data (delegates to ChangesetManager).
+
+        Backward compatibility method. New code should use ChangesetManager directly.
+        """
+        from .changeset_manager import ChangesetManager
+        manager = ChangesetManager(self.output_directory)
+        return manager.save_changeset(run_id, changeset)
+
+    def load_changeset(self, run_id: str) -> Dict[str, Any]:
+        """
+        Load changeset data (delegates to ChangesetManager).
+
+        Backward compatibility method. New code should use ChangesetManager directly.
+        """
+        from .changeset_manager import ChangesetManager
+        manager = ChangesetManager(self.output_directory)
+        return manager.load_changeset(run_id)
+
 
 __all__ = [
     "ArtifactStorage",
