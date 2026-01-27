@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="{{ category }}" tests="{{ total }}" failures="{{ failed }}" errors="{{ errors }}" skipped="{{ skipped }}" time="{{ duration | round(3) }}" timestamp="{{ timestamp }}">
+  <testsuite name="{{ category }}" tests="{{ total }}" failures="{{ failed }}" errors="{{ errors }}" skipped="{{ skipped }}" time="{{ duration | round(3) }}">
+{% for failure in failures %}
+    <testcase name="{{ failure.test_name }}" classname="{{ failure.test_id | replace('::', '.') }}" time="{{ failure.duration_seconds | round(3) }}">
+      <failure message="{{ failure.message | e | truncate(200) }}">{{ failure.traceback | e if failure.traceback else failure.message | e }}</failure>
+    </testcase>
+{% endfor %}
+  </testsuite>
+</testsuites>

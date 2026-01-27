@@ -5,11 +5,11 @@ from unittest.mock import MagicMock, patch
 
 from systemeval.environments.resolver import EnvironmentResolver
 from systemeval.environments.base import Environment, EnvironmentType
-from systemeval.environments.standalone import StandaloneEnvironment
-from systemeval.environments.docker_compose import DockerComposeEnvironment
-from systemeval.environments.composite import CompositeEnvironment
-from systemeval.environments.ngrok import NgrokEnvironment
-from systemeval.environments.browser import BrowserEnvironment
+from systemeval.environments.implementations.standalone import StandaloneEnvironment
+from systemeval.environments.implementations.docker_compose import DockerComposeEnvironment
+from systemeval.environments.implementations.composite import CompositeEnvironment
+from systemeval.environments.implementations.ngrok import NgrokEnvironment
+from systemeval.environments.implementations.browser import BrowserEnvironment
 
 
 class TestEnvironmentResolverInit:

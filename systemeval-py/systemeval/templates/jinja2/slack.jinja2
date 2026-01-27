@@ -1,0 +1,7 @@
+{{ verdict_emoji }} *{{ verdict }}* | `{{ category }}`
+>*Passed:* {{ passed }}/{{ total }} | *Failed:* {{ failed }} | *Errors:* {{ errors }} | *Duration:* {{ duration | round(1) }}s
+{% if failures %}
+*Failures:*
+{% for failure in failures[:5] %}`{{ failure.test_name }}`: {{ failure.message | truncate(50) | replace('\n', ' ') }}
+{% endfor %}{% if failures | length > 5 %}_...and {{ failures | length - 5 }} more_{% endif %}
+{% endif %}

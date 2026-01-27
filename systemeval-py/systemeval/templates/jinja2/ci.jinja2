@@ -1,0 +1,31 @@
+================================================================================
+SYSTEMEVAL RESULTS
+================================================================================
+Verdict:    {{ verdict }}
+Category:   {{ category }}
+Timestamp:  {{ timestamp }}
+Duration:   {{ duration | round(2) }}s
+Exit Code:  {{ exit_code }}
+--------------------------------------------------------------------------------
+COUNTS
+--------------------------------------------------------------------------------
+Total:      {{ total }}
+Passed:     {{ passed }}
+Failed:     {{ failed }}
+Errors:     {{ errors }}
+Skipped:    {{ skipped }}
+{% if coverage_percent is not none %}Coverage:   {{ coverage_percent | round(1) }}%
+{% endif %}
+--------------------------------------------------------------------------------
+{% if failures %}
+FAILURES ({{ failures | length }})
+--------------------------------------------------------------------------------
+{% for failure in failures %}
+[{{ loop.index }}] {{ failure.test_id }}
+    Duration: {{ failure.duration_seconds | round(3) }}s
+    Message:  {{ failure.message | truncate(200) | replace('\n', ' ') }}
+{% endfor %}
+--------------------------------------------------------------------------------
+{% endif %}
+RESULT: {{ verdict }}
+================================================================================

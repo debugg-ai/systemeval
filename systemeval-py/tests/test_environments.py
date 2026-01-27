@@ -447,7 +447,7 @@ import io
 import threading
 import time
 
-from systemeval.environments.standalone import StandaloneEnvironment
+from systemeval.environments.implementations.standalone import StandaloneEnvironment
 
 
 class TestStandaloneEnvironmentInit:
@@ -808,7 +808,7 @@ class TestStandaloneEnvironmentRunTests:
         }
         env = StandaloneEnvironment("test", config)
 
-        with patch("systemeval.environments.standalone.TestExecutor") as mock_executor_class:
+        with patch("systemeval.environments.implementations.standalone.TestExecutor") as mock_executor_class:
             mock_executor = MagicMock()
             mock_executor.execute.return_value = MagicMock(
                 stdout="1 passed in 0.5s",
@@ -1135,7 +1135,7 @@ class TestStandaloneEnvironmentIntegration:
 # DockerComposeEnvironment Tests
 # ============================================================================
 
-from systemeval.environments.docker_compose import DockerComposeEnvironment
+from systemeval.environments.implementations.docker_compose import DockerComposeEnvironment
 from systemeval.utils.docker import (
     DockerResourceManager,
     HealthCheckConfig,
@@ -1418,7 +1418,7 @@ class TestDockerComposeEnvironmentIsReady:
 class TestDockerComposeEnvironmentRunTests:
     """Tests for DockerComposeEnvironment.run_tests() method."""
 
-    @patch('systemeval.environments.docker_compose.DockerExecutor')
+    @patch('systemeval.environments.implementations.docker_compose.DockerExecutor')
     def test_run_tests_success(self, MockDockerExecutor):
         """Test successful test execution."""
         mock_executor = MagicMock()
@@ -1448,7 +1448,7 @@ class TestDockerComposeEnvironmentRunTests:
         assert result.exit_code == 0
         mock_executor.execute.assert_called_once()
 
-    @patch('systemeval.environments.docker_compose.DockerExecutor')
+    @patch('systemeval.environments.implementations.docker_compose.DockerExecutor')
     def test_run_tests_when_not_up(self, MockDockerExecutor):
         """Test run_tests returns error when containers not up."""
         env = DockerComposeEnvironment("test-env", {})
@@ -1460,7 +1460,7 @@ class TestDockerComposeEnvironmentRunTests:
         assert result.exit_code == 2
         MockDockerExecutor.assert_not_called()
 
-    @patch('systemeval.environments.docker_compose.DockerExecutor')
+    @patch('systemeval.environments.implementations.docker_compose.DockerExecutor')
     def test_run_tests_with_suite_filter(self, MockDockerExecutor):
         """Test run_tests with suite filter."""
         mock_executor = MagicMock()
@@ -1481,7 +1481,7 @@ class TestDockerComposeEnvironmentRunTests:
         command = call_args[1]["command"]
         assert "-m integration" in command
 
-    @patch('systemeval.environments.docker_compose.DockerExecutor')
+    @patch('systemeval.environments.implementations.docker_compose.DockerExecutor')
     def test_run_tests_with_verbose(self, MockDockerExecutor):
         """Test run_tests with verbose flag."""
         mock_executor = MagicMock()
@@ -1502,7 +1502,7 @@ class TestDockerComposeEnvironmentRunTests:
         command = call_args[1]["command"]
         assert "-v" in command
 
-    @patch('systemeval.environments.docker_compose.DockerExecutor')
+    @patch('systemeval.environments.implementations.docker_compose.DockerExecutor')
     def test_run_tests_records_timing(self, MockDockerExecutor):
         """Test that run_tests records test timing."""
         mock_executor = MagicMock()
@@ -1521,7 +1521,7 @@ class TestDockerComposeEnvironmentRunTests:
 
         assert env.timings.tests > 0
 
-    @patch('systemeval.environments.docker_compose.DockerExecutor')
+    @patch('systemeval.environments.implementations.docker_compose.DockerExecutor')
     def test_run_tests_passes_config_to_executor(self, MockDockerExecutor):
         """Test run_tests passes test_timeout and test_env to executor."""
         mock_executor = MagicMock()
@@ -1751,7 +1751,7 @@ class TestDockerComposeEnvironmentContextManager:
 class TestDockerComposeEnvironmentDockerExecutorCreation:
     """Tests for DockerExecutor creation in DockerComposeEnvironment."""
 
-    @patch('systemeval.environments.docker_compose.DockerExecutor')
+    @patch('systemeval.environments.implementations.docker_compose.DockerExecutor')
     def test_creates_executor_with_correct_params(self, MockDockerExecutor):
         """Test that DockerExecutor is created with correct parameters."""
         mock_executor = MagicMock()
@@ -1838,7 +1838,7 @@ class TestDockerComposeEnvironmentServiceConfiguration:
 # CompositeEnvironment Tests
 # ============================================================================
 
-from systemeval.environments.composite import CompositeEnvironment, aggregate_results
+from systemeval.environments.implementations.composite import CompositeEnvironment, aggregate_results
 
 
 class TestCompositeEnvironmentInit:

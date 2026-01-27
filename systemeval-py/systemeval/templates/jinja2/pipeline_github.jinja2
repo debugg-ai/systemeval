@@ -1,0 +1,5 @@
+{% if verdict == "PASS" %}::notice::{{ verdict_emoji }} Pipeline evaluation passed: {{ passed }}/{{ total }} projects
+{% else %}::error::{{ verdict_emoji }} Pipeline evaluation failed: {{ failed }} projects failed
+{% endif %}
+{% for failure in failures %}::error title={{ failure.test_name }}::{{ failure.message | truncate(100) | replace('\n', ' ') }}
+{% endfor %}

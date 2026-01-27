@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import MagicMock, patch, PropertyMock
 
-from systemeval.environments.browser import BrowserEnvironment
+from systemeval.environments.implementations.browser import BrowserEnvironment
 from systemeval.environments.base import EnvironmentType, SetupResult
 from systemeval.adapters import TestResult
 

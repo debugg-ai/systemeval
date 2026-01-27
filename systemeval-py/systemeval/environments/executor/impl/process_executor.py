@@ -142,7 +142,7 @@ class LocalCommandExecutor:
             ExecutionResult with output and exit code
         """
         # Import here to avoid circular dependency
-        from systemeval.environments.executor_models import ExecutionResult
+        from systemeval.environments.executor.models import ExecutionResult
 
         # Handle list of commands
         if isinstance(command, list):
@@ -160,7 +160,7 @@ class LocalCommandExecutor:
         shell: bool,
     ) -> "ExecutionResult":
         """Execute a single command."""
-        from systemeval.environments.executor_models import ExecutionResult
+        from systemeval.environments.executor.models import ExecutionResult
 
         logger.debug(f"Executing command: {command[:100]}{'...' if len(command) > 100 else ''}")
         start = time.time()
@@ -215,7 +215,7 @@ class LocalCommandExecutor:
         start: float,
     ) -> "ExecutionResult":
         """Execute with real-time output streaming and timeout enforcement."""
-        from systemeval.environments.executor_models import ExecutionResult
+        from systemeval.environments.executor.models import ExecutionResult
 
         self.stream_handler.clear_buffer()
 
@@ -269,7 +269,7 @@ class LocalCommandExecutor:
         start: float,
     ) -> "ExecutionResult":
         """Execute with output capture (no streaming)."""
-        from systemeval.environments.executor_models import ExecutionResult
+        from systemeval.environments.executor.models import ExecutionResult
 
         result = subprocess.run(
             command if shell else shlex.split(command),
@@ -298,7 +298,7 @@ class LocalCommandExecutor:
         shell: bool,
     ) -> "ExecutionResult":
         """Execute a sequence of commands, stopping on first failure."""
-        from systemeval.environments.executor_models import ExecutionResult
+        from systemeval.environments.executor.models import ExecutionResult
 
         all_stdout = []
         all_stderr = []

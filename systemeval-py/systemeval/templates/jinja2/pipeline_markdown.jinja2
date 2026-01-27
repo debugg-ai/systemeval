@@ -1,0 +1,36 @@
+# Pipeline Evaluation Results
+
+| Metric | Value |
+|--------|-------|
+| **Verdict** | {{ verdict_emoji }} **{{ verdict }}** |
+| **Projects Evaluated** | {{ total }} |
+| **Passed** | {{ passed }} |
+| **Failed** | {{ failed }} |
+| **Duration** | {{ duration | round(1) }}s |
+| **Timestamp** | {{ timestamp }} |
+
+## Exit Code: {{ exit_code }}
+
+{% if verdict == "PASS" %}
+All projects passed pipeline evaluation.
+{% else %}
+**{{ failed }} project(s) failed evaluation.**
+{% endif %}
+
+{% if failures %}
+## Failed Projects
+
+{% for failure in failures %}
+### {{ failure.test_name }}
+
+| Stage | Status |
+|-------|--------|
+| Build | {{ failure.metadata.build_status | default('unknown') }} |
+| Container | {{ 'healthy' if failure.metadata.container_healthy else 'unhealthy' }} |
+| Knowledge Graph | {{ failure.metadata.kg_pages | default(0) }} pages |
+| E2E Tests | {{ failure.metadata.e2e_passed | default(0) }}P / {{ failure.metadata.e2e_failed | default(0) }}F / {{ failure.metadata.e2e_error | default(0) }}E |
+
+**Failure Reason:** {{ failure.message }}
+
+{% endfor %}
+{% endif %}

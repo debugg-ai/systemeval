@@ -1,0 +1,6 @@
+{% if verdict == "PASS" %}::notice::{{ verdict_emoji }} Tests passed: {{ passed }}/{{ total }} ({{ category }})
+{% elif verdict == "FAIL" %}::error::{{ verdict_emoji }} Tests failed: {{ failed }} failures, {{ errors }} errors ({{ category }})
+{% else %}::error::{{ verdict_emoji }} Test execution error ({{ category }})
+{% endif %}
+{% for failure in failures %}::error file={{ failure.test_id | replace('::', '/') }},title={{ failure.test_name }}::{{ failure.message | truncate(100) | replace('\n', ' ') }}
+{% endfor %}

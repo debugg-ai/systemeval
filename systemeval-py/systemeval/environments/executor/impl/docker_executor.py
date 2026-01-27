@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union
 
 from systemeval.utils.logging import get_logger
-from systemeval.environments.executor_impl.process_executor import ProcessStreamHandler
+from systemeval.environments.executor.impl.process_executor import ProcessStreamHandler
 
 logger = get_logger(__name__)
 
@@ -47,7 +47,7 @@ class DockerExecutor:
         shell: bool = True,
     ) -> "ExecutionResult":
         """Execute command inside Docker container."""
-        from systemeval.environments.executor_models import ExecutionResult
+        from systemeval.environments.executor.models import ExecutionResult
 
         # Handle list of commands
         if isinstance(command, list):
@@ -77,7 +77,7 @@ class DockerExecutor:
         stream: bool,
     ) -> "ExecutionResult":
         """Execute a single command via docker compose exec."""
-        from systemeval.environments.executor_models import ExecutionResult
+        from systemeval.environments.executor.models import ExecutionResult
 
         logger.debug(f"Executing in Docker container '{self.container}': {command[:100]}...")
         start = time.time()
@@ -181,7 +181,7 @@ class DockerExecutor:
 
         Delegates to test_result_parser module for parsing logic.
         """
-        from systemeval.environments.executor_impl.test_result_parser import TestResultAggregator
+        from systemeval.environments.executor.impl.test_result_parser import TestResultAggregator
 
         aggregator = TestResultAggregator()
         return aggregator.parse(output, exit_code, json_output)

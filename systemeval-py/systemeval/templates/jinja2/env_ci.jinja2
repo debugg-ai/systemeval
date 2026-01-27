@@ -1,0 +1,37 @@
+================================================================================
+SYSTEMEVAL ENVIRONMENT TEST RESULTS
+================================================================================
+Verdict:     {{ verdict }}
+Environment: {{ env_name }} ({{ env_type }})
+Duration:    {{ duration | round(1) }}s
+Exit Code:   {{ exit_code }}
+Timestamp:   {{ timestamp }}
+--------------------------------------------------------------------------------
+PHASE TIMINGS
+--------------------------------------------------------------------------------
+Build:       {{ timings.build | round(1) }}s
+Startup:     {{ timings.startup | round(1) }}s
+Health:      {{ timings.health_check | round(1) }}s
+Tests:       {{ timings.tests | round(1) }}s
+Cleanup:     {{ timings.cleanup | round(1) }}s
+--------------------------------------------------------------------------------
+TEST COUNTS
+--------------------------------------------------------------------------------
+Total:       {{ total }}
+Passed:      {{ passed }}
+Failed:      {{ failed }}
+Errors:      {{ errors }}
+Skipped:     {{ skipped }}
+--------------------------------------------------------------------------------
+{% if failures %}
+FAILURES ({{ failures | length }})
+--------------------------------------------------------------------------------
+{% for failure in failures %}
+[{{ loop.index }}] {{ failure.test_id }}
+    Duration: {{ failure.duration_seconds | round(3) }}s
+    Message:  {{ failure.message | truncate(200) | replace('\n', ' ') }}
+{% endfor %}
+--------------------------------------------------------------------------------
+{% endif %}
+RESULT: {{ verdict }}
+================================================================================

@@ -1,0 +1,8 @@
+{% if verdict == "PASS" %}::notice::{{ verdict_emoji }} E2E generation succeeded: {{ tests_generated }} tests generated ({{ run_id }})
+{% elif verdict == "FAIL" %}::error::{{ verdict_emoji }} E2E generation failed: {{ error | truncate(100) }} ({{ run_id }})
+{% else %}::error::{{ verdict_emoji }} E2E generation error: {{ error | truncate(100) | default('Unknown error') }} ({{ run_id }})
+{% endif %}
+{% if timed_out %}::warning::E2E generation timed out after {{ duration | round(0) }} seconds
+{% endif %}
+{% for warning in warnings %}::warning::{{ warning | truncate(100) }}
+{% endfor %}

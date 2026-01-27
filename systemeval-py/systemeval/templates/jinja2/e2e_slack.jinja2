@@ -1,0 +1,10 @@
+{{ verdict_emoji }} *{{ verdict }}* | `E2E Generation`
+>*Run:* {{ run_id }} | *Provider:* {{ provider }} | *Duration:* {{ duration | round(1) }}s
+>*Tests Generated:* {{ tests_generated }} | *Files:* {{ files_generated }}
+{% if changeset %}*Changeset:* {{ changeset.total_changes }} files (+{{ changeset.total_additions }}/-{{ changeset.total_deletions }}){% endif %}
+{% if error %}
+*Error:* {{ error | truncate(100) }}
+{% endif %}
+{% if warnings %}
+*Warnings:* {{ warnings | length }}
+{% endif %}

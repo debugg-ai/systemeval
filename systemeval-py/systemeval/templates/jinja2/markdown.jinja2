@@ -1,0 +1,41 @@
+# Test Results: {{ category | upper }}
+
+| Metric | Value |
+|--------|-------|
+| **Verdict** | {{ verdict_emoji }} **{{ verdict }}** |
+| **Category** | {{ category }} |
+| **Total Tests** | {{ total }} |
+| **Passed** | {{ passed }} |
+| **Failed** | {{ failed }} |
+| **Errors** | {{ errors }} |
+| **Skipped** | {{ skipped }} |
+| **Duration** | {{ duration | round(2) }}s |
+| **Timestamp** | {{ timestamp }} |
+{% if coverage_percent is not none %}| **Coverage** | {{ coverage_percent | round(1) }}% |
+{% endif %}
+
+## Exit Code: {{ exit_code }}
+
+{% if verdict == "PASS" %}
+All tests passed successfully.
+{% elif verdict == "FAIL" %}
+**{{ failed + errors }} test(s) did not pass.**
+{% else %}
+**Execution error occurred.** Check configuration and test collection.
+{% endif %}
+{% if failures %}
+
+## Failures
+
+{% for failure in failures %}
+### {{ failure.test_name }}
+
+- **Test ID**: `{{ failure.test_id }}`
+- **Duration**: {{ failure.duration_seconds | round(3) }}s
+
+```
+{{ failure.message | truncate(500) }}
+```
+
+{% endfor %}
+{% endif %}

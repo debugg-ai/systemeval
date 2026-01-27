@@ -1,0 +1,3 @@
+[{{ verdict }}] Pipeline Eval | {{ passed }}/{{ total }} projects passed | {{ duration | round(1) }}s
+{% for failure in failures %}  - {{ failure.test_name }}: {{ failure.message | truncate(60) }}
+{% endfor %}

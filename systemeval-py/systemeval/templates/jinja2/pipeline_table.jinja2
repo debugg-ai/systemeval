@@ -1,0 +1,20 @@
+================================================================================
+PIPELINE EVALUATION RESULTS
+================================================================================
+Duration: {{ duration | round(1) }}s
+Projects: {{ passed }}/{{ total }} passed
+
+Project                  Build        Container  KG Pages   E2E P/F/E    Result
+--------------------------------------------------------------------------------
+{% for failure in failures %}{{ failure.test_name | ljust(24) | truncate(24) }} {{ failure.metadata.build_status | default('none') | ljust(12) }} {{ ('healthy' if failure.metadata.container_healthy else 'unhealthy') | ljust(10) }} {{ failure.metadata.kg_pages | default(0) | string | ljust(10) }} {{ failure.metadata.e2e_passed | default(0) }}/{{ failure.metadata.e2e_failed | default(0) }}/{{ failure.metadata.e2e_errors | default(0) | ljust(8) }} FAIL
+{% endfor %}
+--------------------------------------------------------------------------------
+{% if failures %}
+FAILED CRITERIA:
+{% for failure in failures %}
+  - {{ failure.test_name }}: {{ failure.message }}
+{% endfor %}
+{% endif %}
+================================================================================
+RESULT: {{ verdict }}
+================================================================================

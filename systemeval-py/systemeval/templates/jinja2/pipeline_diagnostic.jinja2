@@ -1,0 +1,82 @@
+================================================================================
+SYSTEMEVAL PIPELINE DIAGNOSTIC REPORT
+================================================================================
+Timestamp:  {{ timestamp }}
+Duration:   {{ duration | round(1) }}s
+Verdict:    {{ verdict_emoji }} {{ verdict }}
+Exit Code:  {{ exit_code }}
+
+================================================================================
+SUMMARY
+================================================================================
+Projects Evaluated: {{ total }}
+  Passed:  {{ passed }}
+  Failed:  {{ failed }}
+  Errors:  {{ errors }}
+
+{% for failure in failures %}
+================================================================================
+PROJECT: {{ failure.test_name }}
+================================================================================
+Status: FAILED
+
+--- BUILD ---
+  Status:    {{ failure.metadata.build_status | default('unknown') }}
+  ID:        {{ failure.metadata.build_id | default('N/A') }}
+  Duration:  {{ failure.metadata.build_duration | default('N/A') }}s
+
+--- CONTAINER ---
+  Healthy:   {{ 'Yes' if failure.metadata.container_healthy else 'No' }}
+  Health Checks: {{ failure.metadata.health_checks_passed | default(0) }}
+  ID:        {{ failure.metadata.container_id | default('N/A') }}
+  Startup:   {{ failure.metadata.container_startup_time | default('N/A') }}s
+
+--- PIPELINE ---
+  Status:    {{ failure.metadata.pipeline_status | default('N/A') }}
+  Name:      {{ failure.metadata.pipeline_name | default('N/A') }}
+  ID:        {{ failure.metadata.pipeline_id | default('N/A') }}
+{% set stages = failure.metadata.get('pipeline_stages', []) if failure.metadata else [] %}
+{% if stages %}
+  Stages:
+{% for stage in stages %}    {{ stage.order }}. {{ stage.name }}: {{ stage.status }}{% if stage.duration %} ({{ stage.duration | round(1) }}s){% endif %}{% if stage.error %} - ERROR: {{ stage.error }}{% endif %}
+
+{% endfor %}{% endif %}
+
+--- KNOWLEDGE GRAPH ---
+  Exists:    {{ 'Yes' if failure.metadata.kg_exists else 'No' }}
+  Pages:     {{ failure.metadata.kg_pages | default(0) }}
+  ID:        {{ failure.metadata.kg_id | default('N/A') }}
+
+--- SURFERS/CRAWLERS ---
+{% set surfers = failure.metadata.get('surfers', {}) if failure.metadata else {} %}
+  Total:     {{ surfers.get('total', 0) }}
+  Completed: {{ surfers.get('completed', 0) }}
+  Failed:    {{ surfers.get('failed', 0) }}
+  Running:   {{ surfers.get('running', 0) }}
+{% if surfers.get('errors') %}  Errors:
+{% for err in surfers.get('errors', []) %}    - {{ err | truncate(70) }}
+{% endfor %}{% endif %}
+
+--- E2E TESTS ---
+  Total Runs:   {{ failure.metadata.e2e_runs | default(0) }}
+  Passed:       {{ failure.metadata.e2e_passed | default(0) }}
+  Failed:       {{ failure.metadata.e2e_failed | default(0) }}
+  Errors:       {{ failure.metadata.e2e_error | default(0) }}
+  Pending:      {{ failure.metadata.e2e_pending | default(0) }}
+  Pass Rate:    {{ failure.metadata.e2e_pass_rate | default(0) }}%
+  Error Rate:   {{ failure.metadata.e2e_error_rate | default(0) }}%
+  Avg Steps:    {{ failure.metadata.e2e_avg_steps | default(0) }}
+
+--- DIAGNOSTICS ---
+{% set diagnostics = failure.metadata.get('diagnostics', []) if failure.metadata else [] %}
+{% if diagnostics %}{% for diag in diagnostics %}  ⚠ {{ diag }}
+{% endfor %}{% else %}  No diagnostic issues found.
+{% endif %}
+
+--- FAILURE REASON ---
+  {{ failure.message }}
+
+{% endfor %}
+================================================================================
+END DIAGNOSTIC REPORT
+================================================================================

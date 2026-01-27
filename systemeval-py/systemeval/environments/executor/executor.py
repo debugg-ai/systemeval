@@ -27,7 +27,7 @@ from systemeval.types import TestResult
 from systemeval.utils.logging import get_logger
 
 # Import pattern classes for backward compatibility
-from systemeval.environments.executor_patterns import (
+from systemeval.environments.executor.patterns import (
     ParserFactory,
     PytestPatterns,
     JestPatterns,
@@ -38,12 +38,12 @@ from systemeval.environments.executor_patterns import (
 )
 
 # Import execution models
-from systemeval.environments.executor_models import ExecutionConfig, ExecutionResult
+from systemeval.environments.executor.models import ExecutionConfig, ExecutionResult
 
 # Import submodule components
-from systemeval.environments.executor_impl.process_executor import LocalCommandExecutor
-from systemeval.environments.executor_impl.docker_executor import DockerExecutor as _DockerExecutor
-from systemeval.environments.executor_impl.test_result_parser import (
+from systemeval.environments.executor.impl.process_executor import LocalCommandExecutor
+from systemeval.environments.executor.impl.docker_executor import DockerExecutor as _DockerExecutor
+from systemeval.environments.executor.impl.test_result_parser import (
     PytestResultParser,
     JestResultParser,
     PlaywrightResultParser,
@@ -53,7 +53,7 @@ from systemeval.environments.executor_impl.test_result_parser import (
     TestResultAggregator,
     DEFAULT_PARSERS,
 )
-from systemeval.environments.executor_impl.json_parser import (
+from systemeval.environments.executor.impl.json_parser import (
     JsonResultParser,
     EmbeddedJsonParser,
 )

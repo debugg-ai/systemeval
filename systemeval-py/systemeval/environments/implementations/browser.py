@@ -18,8 +18,8 @@ from systemeval.types import TestItem, TestResult
 from systemeval.adapters.base import BaseAdapter
 from systemeval.adapters.registry import get_adapter, is_registered
 from systemeval.environments.base import Environment, EnvironmentType, SetupResult
-from systemeval.environments.ngrok import NgrokEnvironment
-from systemeval.environments.standalone import StandaloneEnvironment
+from .ngrok import NgrokEnvironment
+from .standalone import StandaloneEnvironment
 
 logger = logging.getLogger(__name__)
 

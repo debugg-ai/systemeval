@@ -9,7 +9,7 @@ Provides:
 from typing import List, Optional
 
 from systemeval.types import TestResult
-from systemeval.environments.executor_patterns import (
+from systemeval.environments.executor.patterns import (
     PytestPatterns,
     JestPatterns,
     PlaywrightPatterns,
@@ -374,7 +374,7 @@ class TestResultAggregator:
         """
         # Try structured JSON output first (most reliable)
         if json_output:
-            from systemeval.environments.executor_impl.json_parser import JsonResultParser
+            from systemeval.environments.executor.impl.json_parser import JsonResultParser
             json_parser = JsonResultParser()
             if json_parser.can_parse(json_output):
                 result = json_parser.parse(json_output, exit_code)
@@ -382,7 +382,7 @@ class TestResultAggregator:
                     return result
 
         # Look for embedded JSON in output (some reporters embed it)
-        from systemeval.environments.executor_impl.json_parser import EmbeddedJsonParser
+        from systemeval.environments.executor.impl.json_parser import EmbeddedJsonParser
         embedded_parser = EmbeddedJsonParser()
         if embedded_parser.can_parse(output):
             json_result = embedded_parser.parse(output, exit_code)

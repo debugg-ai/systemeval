@@ -1,0 +1,31 @@
+================================================================================
+E2E TEST GENERATION RESULTS
+================================================================================
+Run ID:     {{ run_id }}
+Provider:   {{ provider }}
+Status:     {{ status }}
+Duration:   {{ duration | round(1) }}s
+Verdict:    {{ verdict }}
+================================================================================
+CHANGESET
+--------------------------------------------------------------------------------
+Base:       {{ changeset.base_ref }}
+Head:       {{ changeset.head_ref }}
+Changes:    {{ changeset.total_changes }} files (+{{ changeset.total_additions }}/-{{ changeset.total_deletions }})
+--------------------------------------------------------------------------------
+GENERATION
+--------------------------------------------------------------------------------
+Tests Generated:  {{ tests_generated }}
+Files Generated:  {{ files_generated }}
+{% if artifacts %}Output Directory: {{ artifacts.output_directory }}
+{% endif %}{% if timed_out %}WARNING: Generation timed out!
+{% endif %}
+--------------------------------------------------------------------------------
+{% if error %}
+ERROR
+--------------------------------------------------------------------------------
+{{ error }}
+--------------------------------------------------------------------------------
+{% endif %}
+RESULT: {{ verdict }}
+================================================================================

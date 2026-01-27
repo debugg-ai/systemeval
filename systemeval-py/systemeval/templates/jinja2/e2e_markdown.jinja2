@@ -1,0 +1,73 @@
+# E2E Test Generation Results
+
+| Metric | Value |
+|--------|-------|
+| **Verdict** | {{ verdict_emoji }} **{{ verdict }}** |
+| **Run ID** | `{{ run_id }}` |
+| **Provider** | {{ provider }} |
+| **Status** | {{ status }} |
+| **Tests Generated** | {{ tests_generated }} |
+| **Files Generated** | {{ files_generated }} |
+| **Duration** | {{ duration | round(1) }}s |
+| **Timestamp** | {{ timestamp }} |
+
+## Exit Code: {{ exit_code }}
+
+{% if verdict == "PASS" %}
+E2E test generation completed successfully.
+{% elif verdict == "FAIL" %}
+**E2E test generation failed.**
+{% else %}
+**E2E test generation error.** Check configuration and provider status.
+{% endif %}
+
+## Changeset Analyzed
+
+| Metric | Value |
+|--------|-------|
+| Base Ref | `{{ changeset.base_ref }}` |
+| Head Ref | `{{ changeset.head_ref }}` |
+| Files Changed | {{ changeset.total_changes }} |
+| Additions | +{{ changeset.total_additions }} |
+| Deletions | -{{ changeset.total_deletions }} |
+
+{% if artifacts %}
+## Generated Artifacts
+
+| Metric | Value |
+|--------|-------|
+| Output Directory | `{{ artifacts.output_directory }}` |
+| Total Tests | {{ artifacts.total_tests }} |
+| Total Files | {{ artifacts.test_files | length }} |
+
+{% if artifacts.test_files %}
+### Generated Files
+
+{% for file in artifacts.test_files[:10] %}
+- `{{ file }}`
+{% endfor %}
+{% if artifacts.test_files | length > 10 %}
+_...and {{ artifacts.test_files | length - 10 }} more files_
+{% endif %}
+{% endif %}
+{% endif %}
+
+{% if error %}
+## Error
+
+```
+{{ error }}
+```
+{% endif %}
+
+{% if warnings %}
+## Warnings
+
+{% for warning in warnings %}
+- {{ warning }}
+{% endfor %}
+{% endif %}
+
+{% if timed_out %}
+> **Warning:** Generation timed out after {{ duration | round(0) }} seconds.
+{% endif %}

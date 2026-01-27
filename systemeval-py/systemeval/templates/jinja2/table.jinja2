@@ -1,0 +1,14 @@
++{{ '-' * 78 }}+
+| SYSTEMEVAL RESULTS{{ ' ' * 59 }}|
++{{ '-' * 78 }}+
+| Verdict     | {{ verdict | ljust(63) }}|
+| Category    | {{ category | ljust(63) }}|
+| Exit Code   | {{ exit_code | string | ljust(63) }}|
++{{ '-' * 78 }}+
+| Total       | {{ total | string | ljust(63) }}|
+| Passed      | {{ passed | string | ljust(63) }}|
+| Failed      | {{ failed | string | ljust(63) }}|
+| Errors      | {{ errors | string | ljust(63) }}|
+| Skipped     | {{ skipped | string | ljust(63) }}|
+| Duration    | {{ (duration | round(2) | string + 's') | ljust(63) }}|
++{{ '-' * 78 }}+

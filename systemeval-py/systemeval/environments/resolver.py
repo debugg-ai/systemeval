@@ -10,11 +10,13 @@ from systemeval.config import (
     CompositeEnvConfig,
 )
 from systemeval.environments.base import Environment, EnvironmentType
-from systemeval.environments.standalone import StandaloneEnvironment
-from systemeval.environments.docker_compose import DockerComposeEnvironment
-from systemeval.environments.composite import CompositeEnvironment
-from systemeval.environments.ngrok import NgrokEnvironment
-from systemeval.environments.browser import BrowserEnvironment
+from systemeval.environments.implementations import (
+    StandaloneEnvironment,
+    DockerComposeEnvironment,
+    CompositeEnvironment,
+    NgrokEnvironment,
+    BrowserEnvironment,
+)
 
 
 def _config_to_dict(config: Union[AnyEnvironmentConfig, Dict[str, Any]]) -> Dict[str, Any]:

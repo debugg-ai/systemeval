@@ -1,0 +1,30 @@
+================================================================================
+SYSTEMEVAL PIPELINE RESULTS
+================================================================================
+Verdict:    {{ verdict }}
+Duration:   {{ duration | round(1) }}s
+Exit Code:  {{ exit_code }}
+Timestamp:  {{ timestamp }}
+--------------------------------------------------------------------------------
+PROJECTS
+--------------------------------------------------------------------------------
+Total:      {{ total }}
+Passed:     {{ passed }}
+Failed:     {{ failed }}
+Errors:     {{ errors }}
+--------------------------------------------------------------------------------
+{% if failures %}
+FAILURES ({{ failures | length }})
+--------------------------------------------------------------------------------
+{% for failure in failures %}
+[{{ loop.index }}] {{ failure.test_name }}
+    Build:      {{ failure.metadata.build_status | default('unknown') }}
+    Health:     {{ 'healthy' if failure.metadata.container_healthy else 'unhealthy' }}
+    KG Pages:   {{ failure.metadata.kg_pages | default(0) }}
+    E2E:        {{ failure.metadata.e2e_passed | default(0) }} pass / {{ failure.metadata.e2e_failed | default(0) }} fail / {{ failure.metadata.e2e_error | default(0) }} error
+    Reason:     {{ failure.message }}
+{% endfor %}
+--------------------------------------------------------------------------------
+{% endif %}
+RESULT: {{ verdict }}
+================================================================================
