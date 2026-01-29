@@ -1,0 +1,6 @@
+django>=4.2
+djangorestframework
+psycopg2-binary
+redis
+pytest
+pytest-django

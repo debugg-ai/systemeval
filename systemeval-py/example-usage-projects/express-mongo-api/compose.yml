@@ -1,0 +1,27 @@
+services:
+  api:
+    build: .
+    ports:
+      - "3900:3000"
+    volumes:
+      - ./src:/app/src
+    depends_on:
+      - mongo
+    environment:
+      - MONGO_URL=mongodb://mongo:27017/express_app
+      - NODE_ENV=test
+    working_dir: /app
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', r => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      interval: 10s
+      timeout: 5s
+
+  mongo:
+    image: mongo:7
+    ports:
+      - "27900:27017"
+    volumes:
+      - mongo_data:/data/db
+
+volumes:
+  mongo_data:

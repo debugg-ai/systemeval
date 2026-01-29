@@ -1,0 +1,27 @@
+version: "1.0"
+
+project:
+  name: express-mongo-api
+  adapter: jest
+
+environments:
+  # Minimal — auto-discovers compose.yml, infers api as test service, npm test
+  auto:
+    type: docker-compose
+
+  # Explicit
+  explicit:
+    type: docker-compose
+    compose_file: compose.yml
+    services: [api, mongo]
+    test_service: api
+    test_command: npm test
+    health_check:
+      service: api
+      endpoint: /health
+      port: 3000
+
+  # Attach to running stack
+  attach:
+    type: docker-compose
+    attach: true

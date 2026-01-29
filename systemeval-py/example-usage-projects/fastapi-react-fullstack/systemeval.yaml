@@ -1,0 +1,44 @@
+version: "1.0"
+project:
+  name: fastapi-react-fullstack
+  adapter: pytest
+
+environments:
+  # Minimal — discovers local.yml, infers backend as test service
+  auto:
+    type: docker-compose
+
+  # Backend tests only
+  backend:
+    type: docker-compose
+    compose_file: local.yml
+    services: [backend, postgres]
+    test_service: backend
+    test_command: pytest -v
+    health_check:
+      service: backend
+      endpoint: /health
+      port: 8080
+
+  # Frontend tests
+  frontend:
+    type: docker-compose
+    compose_file: local.yml
+    services: [frontend]
+    test_service: frontend
+    test_command: npm test
+
+  # Full stack with attach
+  fullstack:
+    type: docker-compose
+    compose_file: local.yml
+    attach: true
+    test_service: backend
+
+  # Remote Docker host example
+  staging:
+    type: docker-compose
+    compose_file: local.yml
+    test_service: backend
+    docker:
+      host: ssh://deploy@staging-server

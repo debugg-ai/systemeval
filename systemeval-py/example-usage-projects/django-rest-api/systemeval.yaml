@@ -1,0 +1,27 @@
+version: "1.0"
+project:
+  name: django-rest-api
+  adapter: pytest
+
+environments:
+  # Minimal — auto-discovery finds everything
+  auto:
+    type: docker-compose
+
+  # Explicit — full control
+  explicit:
+    type: docker-compose
+    compose_file: docker-compose.yml
+    services: [django, postgres, redis]
+    test_service: django
+    test_command: pytest -v
+    health_check:
+      service: django
+      endpoint: /api/health/
+      port: 8000
+      timeout: 60
+
+  # Attach mode — connect to already-running containers
+  attach:
+    type: docker-compose
+    attach: true

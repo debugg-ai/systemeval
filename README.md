@@ -1,402 +1,123 @@
 # SystemEval
 
-[![PyPI](https://img.shields.io/pypi/v/systemeval)](https://pypi.org/project/systemeval/)
-[![Python](https://img.shields.io/pypi/pyversions/systemeval)](https://pypi.org/project/systemeval/)
+## What is SystemEval?
 
-A unified evaluation framework providing objective, deterministic, and traceable test execution across any project.
+SystemEval is an AI-powered test orchestration platform that enables systematic testing of every piece of your application. It unifies traditional testing frameworks (pytest, jest, vitest, playwright) with cutting-edge AI-powered testing through DebuggAI integration.
 
-**Homepage**: [debugg.ai](https://debugg.ai) | **Docs**: [debugg.ai/docs/systemeval](https://debugg.ai/docs/systemeval)
+## Mission Statement
 
-> See [COMMANDMENTS.md](COMMANDMENTS.md) for the core principles and design philosophy.
+**SystemEval exists to make comprehensive application testing accessible and intelligent.** We bridge the gap between traditional testing frameworks and AI-powered test generation, providing developers with a unified CLI that handles everything from unit tests to natural language test creation, commit-based test generation, and visual failure analysis.
 
-## Philosophy
+## Key Features
 
-SystemEval exists to solve a fundamental problem: **test results should be facts, not opinions**.
+### Traditional Testing (Unified CLI)
+- **pytest, jest, vitest, playwright** - Run any framework through a single command
+- **Structured JSON output** - Machine-parseable test results with deterministic PASS/FAIL/ERROR verdicts
+- **Framework-agnostic adapters** - Consistent interface across all testing tools
+- **Pipeline-ready** - CI/CD integration with UUID tracking and timestamped results
+- **Docker Compose support** - Auto-discovery, lifecycle management, and remote Docker host execution
 
-Traditional test runners produce ambiguous output that requires human interpretation. Did the build pass? Sort of. Are we ready to deploy? Probably. SystemEval eliminates this ambiguity with three core principles:
+### AI-Powered Testing (DebuggAI Integration)
+- **Natural language tests**: Write `systemeval e2e "create tests for homepage"` instead of manual test code
+- **Commit-based test generation**: Automatically generate tests based on your code changes
+- **Application crawling**: Map your entire application structure with intelligent page discovery
+- **Knowledge graphs**: Build semantic understanding of your application architecture
+- **Visual failure analysis**: Instant Chrome logs, screenshots, and debugging context on test failures
+- **Intelligent test verification**: `systemeval e2e verify --suite homepage` to validate generated tests
 
-### 1. Objective Verdicts
+## Why SystemEval?
 
-Every evaluation produces one of three verdicts: `PASS`, `FAIL`, or `ERROR`. There is no "mostly passing" or "acceptable failure rate." The verdict is computed deterministically from metrics using cascade logic:
+Traditional testing requires manual test authoring, framework-specific knowledge, and constant maintenance. SystemEval's DebuggAI integration transforms this workflow:
 
-```
-ANY metric fails    --> session FAILS
-ANY session fails   --> sequence FAILS
-exit_code == 2      --> ERROR (collection/config problem)
-total == 0          --> ERROR (nothing ran)
-```
+1. **Write code** - Make changes to your application
+2. **Generate tests** - `systemeval e2e "create tests for the new login flow"`
+3. **Verify automatically** - Get instant feedback with visual debugging
+4. **Run anywhere** - Same CLI works for pytest, jest, playwright, or AI-generated tests
 
-### 2. Non-Fungible Runs
+Whether you're running legacy pytest suites or generating cutting-edge AI-powered E2E tests, SystemEval provides one unified interface.
 
-Every evaluation run is uniquely identifiable and traceable:
+## Docker Compose Support
 
-- **Run ID**: UUID for the specific execution
-- **Timestamp**: ISO 8601 UTC timestamp
-- **Exit Code**: 0 (PASS), 1 (FAIL), or 2 (ERROR)
-
-Same inputs always produce the same verdict. If a test is flaky, it fails - there is no retry-until-green.
-
-### 3. Machine-Parseable Output
-
-Results are structured data first, human-readable second:
-
-- JSON schema for programmatic consumption
-- Jinja2 templates for human-friendly formats
-- Designed for CI pipelines, agentic review, and automated comparison
-
-## Installation
-
-```bash
-# From PyPI
-pip install systemeval
-
-# With pytest support (recommended)
-pip install systemeval[pytest]
-
-# From source
-git clone https://github.com/debugg-ai/systemeval
-cd systemeval
-pip install -e ".[pytest]"
-```
-
-**Requirements**: Python 3.9+
-
-## Quick Start
-
-### Initialize Configuration
-
-```bash
-cd your-project
-systemeval init
-```
-
-This creates `systemeval.yaml` with auto-detected settings for your project type (Django, Next.js, generic Python, etc.).
-
-### Run Tests
-
-```bash
-# Run all tests
-systemeval test
-
-# Run specific category
-systemeval test --category unit
-
-# Run with JSON output for CI
-systemeval test --json
-
-# Run with specific template
-systemeval test --template markdown
-```
-
-### Check Results
-
-```bash
-# Exit code tells you everything
-systemeval test && echo "PASS" || echo "FAIL"
-```
-
-## Configuration
-
-Create `systemeval.yaml` in your project root:
+Run tests inside Docker containers with automatic discovery:
 
 ```yaml
-# Adapter: which test framework to use
-adapter: pytest
-
-# Project metadata
-project_root: .
-test_directory: tests
-
-# Test categories with markers
-categories:
-  unit:
-    description: "Fast isolated unit tests"
-    markers: [unit]
-  integration:
-    description: "Tests with external dependencies"
-    markers: [integration]
-  api:
-    description: "API endpoint tests"
-    markers: [api]
-  e2e:
-    description: "End-to-end browser tests"
-    markers: [e2e]
-    requires: [browser]
-```
-
-## Output Schema
-
-Every test run produces a result conforming to this schema:
-
-```json
-{
-  "verdict": "PASS | FAIL | ERROR",
-  "exit_code": 0,
-  "timestamp": "2024-01-15T10:30:00.000Z",
-  "total": 150,
-  "passed": 148,
-  "failed": 2,
-  "errors": 0,
-  "skipped": 5,
-  "duration_seconds": 12.345,
-  "category": "unit",
-  "coverage_percent": 87.5
-}
-```
-
-### Verdict Logic
-
-| Condition | Verdict | Exit Code |
-|-----------|---------|-----------|
-| `exit_code == 2` | ERROR | 2 |
-| `total == 0` | ERROR | 2 |
-| `failed > 0 OR errors > 0` | FAIL | 1 |
-| All tests pass | PASS | 0 |
-
-### Extended Schema (Sequence Results)
-
-For multi-session evaluations:
-
-```json
-{
-  "sequence_id": "uuid",
-  "sequence_name": "full-pipeline",
-  "verdict": "PASS | FAIL",
-  "exit_code": 0,
-  "duration_seconds": 45.2,
-  "pass_count": 3,
-  "fail_count": 0,
-  "sessions": [
-    {
-      "session_id": "uuid",
-      "session_name": "unit-tests",
-      "verdict": "PASS",
-      "duration_seconds": 12.1,
-      "metrics": [
-        {
-          "name": "tests_passed",
-          "value": 150,
-          "passed": true,
-          "failure_message": null
-        }
-      ]
-    }
-  ]
-}
-```
-
-## CLI Reference
-
-### Commands
-
-| Command | Description |
-|---------|-------------|
-| `systemeval test` | Run tests using configured adapter |
-| `systemeval init` | Create configuration file |
-| `systemeval validate` | Validate configuration |
-| `systemeval list categories` | Show available test categories |
-| `systemeval list adapters` | Show available test adapters |
-| `systemeval list templates` | Show available output templates |
-| `systemeval list environments` | Show configured environments |
-
-## Design Requirements
-
-- Do not introduce hard-coded strings/numbers; use configuration files, constants, or environment variables for values that may change between environments.
-- Keep modules focused and digestible—split files that exceed ~600 lines and avoid functions longer than a screen so reasoning and tests stay simple.
-- Maintain clear separation of concerns: configuration, command parsing, orchestration, and environment management should live in distinct layers.
-- Document any deliberate exceptions to these rules (legacy constraints, temporary hacks) so reviewers know the rationale.
-
-### Test Options
-
-```bash
-systemeval test [OPTIONS]
-
-Options:
-  -c, --category TEXT         Test category (unit, integration, api, e2e)
-  -a, --app TEXT              Specific app/module to test
-  -f, --file TEXT             Specific test file to run
-  -p, --parallel              Run tests in parallel
-  --coverage                  Collect coverage data
-  -x, --failfast              Stop on first failure
-  -v, --verbose               Verbose output
-  --json                      Output results as JSON
-  -t, --template TEXT         Output template name
-  --env-mode [auto|docker|local]  Execution environment (default: auto)
-  --config PATH               Path to config file
-  -e, --env TEXT              Environment to run in
-  -s, --suite TEXT            Test suite to run
-  --keep-running              Keep services running after tests
-```
-
-### Exit Codes
-
-| Code | Meaning |
-|------|---------|
-| 0 | All tests passed (PASS) |
-| 1 | One or more tests failed (FAIL) |
-| 2 | Configuration, collection, or execution error (ERROR) |
-
-## Output Templates
-
-SystemEval includes built-in templates for different output needs:
-
-| Template | Use Case |
-|----------|----------|
-| `summary` | One-line CI log output |
-| `table` | ASCII table for terminal |
-| `markdown` | Full report in markdown |
-| `json` | Use `--json` flag instead |
-| `junit` | JUnit XML for test tools |
-| `github` | GitHub Actions annotations |
-| `slack` | Slack message format |
-| `ci` | Structured CI/CD format |
-
-### Usage
-
-```bash
-# Terminal table
-systemeval test --template table
-
-# Markdown report
-systemeval test --template markdown > report.md
-
-# GitHub annotations
-systemeval test --template github
-```
-
-### Custom Templates
-
-Templates use Jinja2 syntax. Create custom templates:
-
-```bash
-# From file
-systemeval test --template ./my-template.j2
-
-# Available context variables:
-# verdict, exit_code, total, passed, failed, errors, skipped
-# duration, timestamp, category, coverage_percent
-# pass_rate, failure_rate, verdict_emoji
-# failures (list of failure details)
-```
-
-## Adapters
-
-Adapters bridge SystemEval to specific test frameworks.
-
-### Pytest (Default)
-
-```yaml
-adapter: pytest
-```
-
-Features:
-- Test discovery via pytest collection API
-- Marker-based category filtering
-- Parallel execution (pytest-xdist)
-- Coverage reporting (pytest-cov)
-- Django auto-detection and configuration
-
-### Jest (Coming Soon)
-
-```yaml
-adapter: jest
-jest:
-  config_file: jest.config.js
-```
-
-### Creating Custom Adapters
-
-```python
-from systemeval.adapters import BaseAdapter, TestResult, TestItem
-
-class MyAdapter(BaseAdapter):
-    def discover(self, category=None, app=None, file=None) -> list[TestItem]:
-        # Return discovered tests
-        pass
-
-    def execute(self, tests=None, **kwargs) -> TestResult:
-        # Run tests and return results
-        pass
-
-    def get_available_markers(self) -> list[str]:
-        # Return available categories/markers
-        pass
-
-    def validate_environment(self) -> bool:
-        # Check framework is configured
-        pass
-```
-
-Register in the adapter registry:
-
-```python
-from systemeval.adapters import register_adapter
-register_adapter("my-adapter", MyAdapter)
-```
-
-## Environments
-
-SystemEval can orchestrate test environments (Docker Compose, standalone services).
-
-```yaml
+# systemeval.yaml - minimal config, auto-discovers everything
 environments:
   backend:
     type: docker-compose
-    compose_file: docker-compose.yml
-    test_command: pytest
-    default: true
-
-  frontend:
-    type: standalone
-    command: npm run dev
-    test_command: npm test
 ```
-
-Run tests in specific environment:
 
 ```bash
+# Build, start containers, run tests, teardown
 systemeval test --env backend
-systemeval test --env frontend
+
+# Attach to already-running containers
+systemeval test --env backend --attach
+
+# Docker-specific commands
+systemeval docker status
+systemeval docker logs django
+systemeval docker exec pytest -v
 ```
 
-## Design Principles
+Features:
+- **Auto-discovery**: Finds compose files, test services, health endpoints
+- **Lifecycle management**: Build → Start → Health check → Test → Teardown
+- **Attach mode**: Connect to pre-running containers
+- **Remote Docker**: Execute against remote Docker hosts via SSH or contexts
+- **Pre-flight checks**: Validates Docker setup before running
 
-1. **Deterministic**: Same inputs always produce same verdict
-2. **Objective**: No subjective interpretation of results
-3. **Traceable**: Every run is uniquely identifiable
-4. **Machine-First**: JSON output designed for automation
-5. **Framework-Agnostic**: Adapters hide implementation details
-6. **CI-Native**: Exit codes and output formats for pipelines
+See `systemeval-py/docs/docker-compose.md` for full documentation.
+
+---
+
+# SystemEval Playgrounds
+
+## Next.js Sample App
+
+- Directory: `systemeval-next-sample`
+- Purpose: run `systemeval` CLI commands such as `crawl`, `e2e "create tests for homepage"`, or the Debugg-AI CLI against a lightweight Next.js homepage, dashboard, and API stack.
+
+### Getting started
+
+```bash
+cd systemeval-next-sample
+npm install
+npm run dev
+```
+
+The server listens at `http://localhost:3000` (`systemeval` defaults to port 3000). Use the following commands once the app is running:
+
+```
+systemeval crawl --target http://localhost:3000
+systemeval e2e "create tests for homepage"
+systemeval e2e verify --suite homepage
+```
+
+Use `systemeval status` or `systemeval help` for more context once the CLI is wired into your workflow.
 
 ## Design Requirements
 
-- Avoid embedding “magic” strings or numbers; prefer constants, YAML fields, or env vars so behavior is configurable.
-- Break files that grow beyond ~600 lines into cohesive, testable pieces and keep functions short unless the domain demand special handling.
-- Enforce single-responsibility layering: parsing, orchestration, and runtime helpers should be maintained in separate modules.
-- Document intentional deviations so future agents understand why the rule was relaxed.
-- Refer to `../docs/crawl-e2e-api-reference.md` before wiring CLI integrations to reuse the documented crawl and E2E API shapes.
+- Avoid embedding "magic" strings or numbers directly in code; prefer constants, YAML fields, or env vars so behavior is configurable.
+- Break any file growing beyond ~600 lines into cohesive pieces, and keep individual functions concise to improve readability.
+- Enforce single-responsibility layering: parsing, orchestration, and runtime helpers should live in separate modules.
+- Call out any intentional exceptions to these guidelines with inline comments or README notes so future maintainers understand why they're necessary.
+- Refer to `docs/crawl-e2e-api-reference.md` for the authoritative shapes of the crawl and E2E APIs before wiring new Debugg-AI CLI or SystemEval flows.
 
-## Comparison with Other Tools
+## ⏺ The Testing Philosophy
 
-| Feature | SystemEval | pytest | jest |
-|---------|------------|--------|------|
-| Unified CLI | Yes | No | No |
-| Framework agnostic | Yes | Python only | JS only |
-| Strict verdicts | PASS/FAIL/ERROR | Exit codes vary | Exit codes vary |
-| JSON schema | Versioned | Plugin required | Custom |
-| Environment orchestration | Built-in | External | External |
+### The Process
+1. Investigate Why Tests Missed It
+2. Write Test That FAILS
+3. Fix The Code
+4. Test Now PASSES
 
-## Contributing
+### The Philosophy
+Never fix a bug you can't reproduce in a test.
 
-See the adapter documentation in `systemeval/adapters/README.md` for details on extending SystemEval.
+## API References
 
-## Links
+The Debugg-AI / SystemEval integration depends on the sentinel platform APIs. Before modifying the CLI or sample apps:
 
-- **Homepage**: [debugg.ai](https://debugg.ai)
-- **Documentation**: [debugg.ai/docs/systemeval](https://debugg.ai/docs/systemeval)
-- **Repository**: [github.com/debugg-ai/systemeval](https://github.com/debugg-ai/systemeval)
-- **PyPI**: [pypi.org/project/systemeval](https://pypi.org/project/systemeval/)
-
-## License
-
-MIT License - see [LICENSE](LICENSE) for details.
+- Read `docs/crawl-e2e-api-reference.md` for quick summaries of the crawl sessions and `/api/e2e-tests/` endpoints.
+- Confirm authentication expectations (Bearer vs Token) and token issuance steps described in that guide.

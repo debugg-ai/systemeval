@@ -198,6 +198,10 @@ For multi-session evaluations:
 | `systemeval list adapters` | Show available test adapters |
 | `systemeval list templates` | Show available output templates |
 | `systemeval list environments` | Show configured environments |
+| `systemeval docker status` | Show Docker container status |
+| `systemeval docker logs` | View container logs |
+| `systemeval docker exec` | Execute command in test container |
+| `systemeval docker ready` | Check if containers are healthy |
 
 ## Design Requirements
 
@@ -226,6 +230,7 @@ Options:
   -e, --env TEXT              Environment to run in
   -s, --suite TEXT            Test suite to run
   --keep-running              Keep services running after tests
+  --attach                    Attach to running containers (skip build/up)
 ```
 
 ### Exit Codes
@@ -334,29 +339,171 @@ from systemeval.adapters import register_adapter
 register_adapter("my-adapter", MyAdapter)
 ```
 
-## Environments
+## Docker Compose Environments
 
-SystemEval can orchestrate test environments (Docker Compose, standalone services).
+SystemEval provides first-class Docker Compose support with auto-discovery, lifecycle management, and remote Docker host support.
+
+### Quick Start
+
+```yaml
+# Minimal config - auto-discovers everything from docker-compose.yml
+environments:
+  backend:
+    type: docker-compose
+```
+
+SystemEval will automatically:
+- Find compose files (`docker-compose.yml`, `compose.yml`, `local.yml`, etc.)
+- Detect services with source mounts as test candidates
+- Infer test commands from `pytest.ini`, `package.json`, etc.
+- Extract health check endpoints from compose healthchecks
+- Configure appropriate ports
+
+### Full Configuration
 
 ```yaml
 environments:
   backend:
     type: docker-compose
-    compose_file: docker-compose.yml
-    test_command: pytest
-    default: true
+    compose_file: local.yml           # Compose file (auto-detected if omitted)
+    services: [django, postgres, redis]  # Services to manage (all if omitted)
+    test_service: django              # Container to run tests in
+    test_command: pytest              # Test command (auto-detected)
+    working_dir: .                    # Project directory
 
+    # Health check (auto-detected from compose healthcheck)
+    health_check:
+      endpoint: /api/health/
+      port: 8000
+      timeout: 120
+
+    # Remote Docker host (optional)
+    docker:
+      host: ssh://user@remote-server
+      # Or use Docker context
+      context: my-remote-context
+```
+
+### Attach Mode
+
+Connect to already-running containers without lifecycle management:
+
+```yaml
+environments:
+  dev:
+    type: docker-compose
+    attach: true  # Skip build/up, just exec into running containers
+    test_service: django
+```
+
+```bash
+# Containers already running from docker compose up
+systemeval test --env dev --attach
+```
+
+### Auto-Discovery
+
+SystemEval searches for compose files in priority order:
+1. `docker-compose.yml`
+2. `docker-compose.yaml`
+3. `compose.yml`
+4. `compose.yaml`
+5. `local.yml` / `local.yaml`
+6. `dev.yml` / `dev.yaml`
+
+From the compose file, it infers:
+- **Test service**: First service with source mount + build context
+- **Health port**: From port mapping (e.g., `8000:8000` → port 8000)
+- **Health endpoint**: From compose healthcheck command
+- **Test command**: From `pytest.ini`, `package.json`, `pyproject.toml`
+
+### CLI Commands
+
+```bash
+# Run tests in Docker environment
+systemeval test --env backend
+
+# Attach to running containers
+systemeval test --env backend --attach
+
+# Docker-specific commands
+systemeval docker status              # Show container status
+systemeval docker logs [service]      # View container logs
+systemeval docker exec <cmd>          # Execute command in test container
+systemeval docker ready               # Check if containers are healthy
+```
+
+### Pre-flight Checks
+
+Before starting containers, SystemEval validates:
+- Docker binary is installed
+- Docker daemon is running
+- Docker Compose V2 is available
+- Compose file exists and is valid YAML
+- Referenced services exist in compose file
+- Test service is defined
+
+### Remote Docker Hosts
+
+Run tests against remote Docker daemons:
+
+```yaml
+environments:
+  staging:
+    type: docker-compose
+    docker:
+      host: ssh://deploy@staging.example.com
+    attach: true  # Usually attach to remote, don't manage lifecycle
+```
+
+Or use Docker contexts:
+
+```bash
+docker context create staging --docker "host=ssh://deploy@staging.example.com"
+```
+
+```yaml
+environments:
+  staging:
+    type: docker-compose
+    docker:
+      context: staging
+```
+
+### Example Projects
+
+See `example-usage-projects/` for complete working examples:
+
+| Project | Compose File | Stack | Test Framework |
+|---------|-------------|-------|----------------|
+| `django-rest-api/` | `docker-compose.yml` | Django + Postgres + Redis | pytest |
+| `express-mongo-api/` | `compose.yml` | Express + MongoDB | jest |
+| `fastapi-react-fullstack/` | `local.yml` | FastAPI + React + Postgres + nginx | pytest + jest |
+
+### Standalone Environments
+
+For non-Docker services:
+
+```yaml
+environments:
   frontend:
     type: standalone
     command: npm run dev
     test_command: npm test
+    ready_endpoint: http://localhost:3000
 ```
 
-Run tests in specific environment:
+### Running Tests
 
 ```bash
+# Run in specific environment
 systemeval test --env backend
-systemeval test --env frontend
+
+# Run in default environment
+systemeval test
+
+# Keep containers running after tests
+systemeval test --env backend --keep-running
 ```
 
 ## Design Principles
@@ -370,11 +517,22 @@ systemeval test --env frontend
 
 ## Design Requirements
 
-- Avoid embedding “magic” strings or numbers; prefer constants, YAML fields, or env vars so behavior is configurable.
+- Avoid embedding "magic" strings or numbers; prefer constants, YAML fields, or env vars so behavior is configurable.
 - Break files that grow beyond ~600 lines into cohesive, testable pieces and keep functions short unless the domain demand special handling.
 - Enforce single-responsibility layering: parsing, orchestration, and runtime helpers should be maintained in separate modules.
 - Document intentional deviations so future agents understand why the rule was relaxed.
 - Refer to `../docs/crawl-e2e-api-reference.md` before wiring CLI integrations to reuse the documented crawl and E2E API shapes.
+
+## ⏺ The Testing Philosophy
+
+### The Process
+1. Investigate Why Tests Missed It
+2. Write Test That FAILS
+3. Fix The Code
+4. Test Now PASSES
+
+### The Philosophy
+Never fix a bug you can't reproduce in a test.
 
 ## Comparison with Other Tools
 

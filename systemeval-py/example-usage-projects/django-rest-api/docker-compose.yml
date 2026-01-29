@@ -1,0 +1,32 @@
+version: "3.8"
+
+services:
+  django:
+    build: .
+    ports:
+      - "8900:8000"
+    volumes:
+      - ./:/app
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      DJANGO_SETTINGS_MODULE: myapi.settings
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/myapi
+      REDIS_URL: redis://redis:6379/0
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres:
+    image: postgres:15
+    ports:
+      - "5490:5432"
+    environment:
+      POSTGRES_DB: myapi
+      POSTGRES_PASSWORD: postgres
+
+  redis:
+    image: redis:7-alpine
