@@ -1,0 +1,31 @@
+{
+  "suite": "feature_validation",
+  "description": "Core eval-app feature validations — real LLM + real browser, verified by an independent DOM oracle (not the agent's self-report). Self-contained: each scenario carries its own goal; run_eval resolve-or-creates the E2eTest from it (no seeder lists).",
+  "project": "eval-app",
+  "target_url": "http://host.docker.internal:8080",
+  "scenarios": [
+    {
+      "id": "add_and_verify_task",
+      "test_name": "feature_add_and_verify_task",
+      "goal": "Log in, go to the tasks page, add a new task titled 'Buy groceries', and confirm that 'Buy groceries' now appears in the task list.",
+      "reset": true,
+      "oracle": {"path": "/tasks", "contains": "Buy groceries"},
+      "expect": {"no_error": true, "max_hallucinations": 0}
+    },
+    {
+      "id": "edit_profile_name",
+      "test_name": "feature_profile_edit",
+      "goal": "Log in, open the edit profile page, change the display name field to 'Casey Jordan', save the form, and confirm the change was saved.",
+      "reset": true,
+      "oracle": {"path": "/profile", "contains": "Casey Jordan"},
+      "expect": {"no_error": true, "max_hallucinations": 0}
+    },
+    {
+      "id": "search_report",
+      "test_name": "feature_search",
+      "goal": "Log in, use the search feature to search for the word 'report', and confirm that search results are shown.",
+      "oracle": {"path": "/search?q=report", "contains": "Report"},
+      "expect": {"no_error": true, "max_hallucinations": 0, "must_reach_url": "/search"}
+    }
+  ]
+}

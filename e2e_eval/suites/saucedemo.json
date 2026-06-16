@@ -1,0 +1,11 @@
+{
+  "suite": "saucedemo",
+  "description": "CROSS-APP generality probe (qc01.9) — a REAL public app (Sauce Labs demo e-commerce), not eval-app. Tests whether the agent's login/navigate/cart/checkout abilities and failure modes reproduce off the eval-app fixture. Oracle is must_reach_url (the trace's sensed URLs) since a real client-rendered SPA has no server-side state to GET.",
+  "project": "saucedemo",
+  "target_url": "https://www.saucedemo.com",
+  "scenarios": [
+    {"id": "login", "test_name": "saucedemo_login", "goal": "Log in to the application and confirm you have reached the products inventory page.", "expect": {"outcome": "pass", "no_error": true, "max_hallucinations": 0, "must_reach_url": "/inventory.html"}},
+    {"id": "add_to_cart", "test_name": "saucedemo_add_to_cart", "goal": "Log in, then add the 'Sauce Labs Backpack' product to the shopping cart, and open the cart page to confirm the backpack is in it.", "expect": {"outcome": "pass", "no_error": true, "max_hallucinations": 0, "must_reach_url": "/cart.html"}},
+    {"id": "full_checkout", "test_name": "saucedemo_full_checkout", "goal": "Log in, add the 'Sauce Labs Backpack' to your cart, open the cart, proceed to checkout, fill in first name 'Test', last name 'User', and ZIP code '12345', then finish the order and confirm the order is complete.", "expect": {"outcome": "pass", "no_error": true, "max_hallucinations": 0, "must_reach_url": "/checkout-complete.html"}}
+  ]
+}

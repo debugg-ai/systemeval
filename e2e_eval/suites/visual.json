@@ -1,0 +1,10 @@
+{
+  "suite": "visual",
+  "description": "Visual-evaluation probes (qc01.16) — the distinguishing signal is CSS-only (a text color / a row highlight), NOT in the DOM text. Each forces an ACTION driven by the visual fact so a DOM oracle can verify it. Measures whether the agent has ANY visual/computed-style perception. NOTE: the deterministic computed-style FACTS oracle and the screenshot VISION oracle are implementation 'walls' to add later; this is the failing frame.",
+  "project": "eval-app",
+  "target_url": "http://host.docker.internal:8080",
+  "scenarios": [
+    {"id": "color_approve", "test_name": "visual_color_approve", "goal": "Log in, go to /visual/colors. The page shows a status indicator. If the indicator is green, click Approve; if it is red, click Reject.", "reset": true, "oracle": {"path": "/visual/result", "contains": "choice:approve"}, "expect": {"no_error": true, "max_hallucinations": 0}},
+    {"id": "highlighted_item", "test_name": "visual_highlighted_item", "goal": "Log in, go to /visual/states, and click the menu item that is visually highlighted.", "reset": true, "oracle": {"path": "/visual/result", "contains": "item:Reports"}, "expect": {"no_error": true, "max_hallucinations": 0}}
+  ]
+}

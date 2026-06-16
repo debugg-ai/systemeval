@@ -1,0 +1,14 @@
+{
+  "suite": "affordance",
+  "description": "Affordance-classification probes (qc01.2) — widgets the surfer may misclassify or fail to actuate: file upload, range slider, date picker, multi-select, ARIA toggle switch (role=switch div, NOT a checkbox), HTML5 drag-and-drop. Each writes its value to /widgets/result for an independent DOM oracle.",
+  "project": "eval-app",
+  "target_url": "http://host.docker.internal:8080",
+  "scenarios": [
+    {"id": "file_upload", "test_name": "affordance_file_upload", "goal": "Log in, go to /widgets/file, attach any file in the file input, and click Upload.", "reset": true, "oracle": {"path": "/widgets/result", "contains": "file:"}, "expect": {"no_error": true, "max_hallucinations": 0}},
+    {"id": "range_slider", "test_name": "affordance_range_slider", "goal": "Log in, go to /widgets/slider, set the Level range slider to 70, and click Save.", "reset": true, "oracle": {"path": "/widgets/result", "contains": "slider: 70"}, "expect": {"no_error": true, "max_hallucinations": 0}},
+    {"id": "date_picker", "test_name": "affordance_date_picker", "goal": "Log in, go to /widgets/date, set the date field to 2026-03-15, and click Save.", "reset": true, "oracle": {"path": "/widgets/result", "contains": "date: 2026-03-15"}, "expect": {"no_error": true, "max_hallucinations": 0}},
+    {"id": "multi_select", "test_name": "affordance_multi_select", "goal": "Log in, go to /widgets/multiselect, select BOTH 'Red' and 'Blue' in the multi-select list, and click Save.", "reset": true, "oracle": {"path": "/widgets/result", "contains": "multiselect: red, blue"}, "expect": {"no_error": true, "max_hallucinations": 0}},
+    {"id": "toggle_switch", "test_name": "affordance_toggle_switch", "goal": "Log in, go to /widgets/toggle, turn the toggle switch ON, and click Save.", "reset": true, "oracle": {"path": "/widgets/result", "contains": "toggle: on"}, "expect": {"no_error": true, "max_hallucinations": 0}},
+    {"id": "drag_drop", "test_name": "affordance_drag_drop", "goal": "Log in, go to /widgets/drag, drag the 'Item' box into the 'Drop here' zone, and click Save.", "reset": true, "oracle": {"path": "/widgets/result", "contains": "drag: dropped"}, "expect": {"no_error": true, "max_hallucinations": 0}}
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "suite": "multistep",
+  "description": "Multi-step/stateful-flow probes — the brain must remember earlier-entered data and carry state across navigation. add-task -> navigate away -> return -> complete the SAME task (state persistence + a stateful action on a remembered item); and place-order -> navigate to orders -> verify it landed (a cart/checkout-style sequence). Oracles confirm the END state, not the agent's self-report.",
+  "project": "eval-app",
+  "target_url": "http://host.docker.internal:8080",
+  "scenarios": [
+    {
+      "id": "add_navigate_complete",
+      "test_name": "multistep_add_navigate_complete",
+      "goal": "Log in, add a new task titled 'Pay rent'. Then navigate to the dashboard page. Then return to the tasks page and mark the 'Pay rent' task as complete. Confirm it is marked as completed.",
+      "reset": true,
+      "oracle": {"path": "/tasks", "contains": "task done"},
+      "expect": {"no_error": true, "max_hallucinations": 0}
+    },
+    {
+      "id": "order_full_sequence",
+      "test_name": "multistep_order_full_sequence",
+      "goal": "Log in, place a new order: open the new order form, choose the country 'United States', choose a region, complete and submit the order. Then go to the orders page and confirm your order is now listed there.",
+      "reset": true,
+      "oracle": {"path": "/orders", "not_contains": "0 order(s)"},
+      "expect": {"no_error": true, "max_hallucinations": 0}
+    }
+  ]
+}

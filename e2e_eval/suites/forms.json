@@ -1,0 +1,16 @@
+{
+  "suite": "forms",
+  "description": "Complex/dynamic form handling — conditional dependent fields + required-field validation. /orders/new: choosing a country populates the region dropdown (JS), and region is required. Tests re-perception after a DOM mutation + filling all required fields + verifying the result.",
+  "project": "eval-app",
+  "target_url": "http://host.docker.internal:8080",
+  "scenarios": [
+    {
+      "id": "order_conditional",
+      "test_name": "forms_order_conditional",
+      "goal": "Log in, then place a new order: open the new order form, choose the country 'United States', then choose a region from the region dropdown that appears, fill in any other required fields, and submit the order. Confirm the order was placed.",
+      "reset": true,
+      "oracle": {"path": "/orders", "not_contains": "0 order(s)", "only_if_pass": true},
+      "expect": {"no_error": true, "max_hallucinations": 0}
+    }
+  ]
+}

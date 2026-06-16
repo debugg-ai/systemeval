@@ -1,0 +1,11 @@
+{
+  "suite": "selectors",
+  "description": "Selector/action-robustness probes (qc01.3) — non-unique or hard-to-address controls: three identical 'Edit' buttons (disambiguate by row name), a Confirm button covered by an overlay (must dismiss first), and a Submit disabled until a field is filled.",
+  "project": "eval-app",
+  "target_url": "http://host.docker.internal:8080",
+  "scenarios": [
+    {"id": "duplicate_text", "test_name": "selectors_duplicate_text", "goal": "Log in, go to /robustness/duplicate-text, and click the 'Edit' button belonging to the row named 'Bravo' (the second row).", "reset": true, "oracle": {"path": "/robustness/result", "contains": "edit:2"}, "expect": {"no_error": true, "max_hallucinations": 0}},
+    {"id": "covered_control", "test_name": "selectors_covered_control", "goal": "Log in, go to /robustness/covered, dismiss the overlay notice that covers the page, then click the Confirm button.", "reset": true, "oracle": {"path": "/robustness/result", "contains": "confirm:ok"}, "expect": {"no_error": true, "max_hallucinations": 0}},
+    {"id": "disabled_submit", "test_name": "selectors_disabled_submit", "goal": "Log in, go to /robustness/disabled-submit, type a name into the field to enable the Submit button, then click Submit.", "reset": true, "oracle": {"path": "/robustness/result", "contains": "agree:done"}, "expect": {"no_error": true, "max_hallucinations": 0}}
+  ]
+}

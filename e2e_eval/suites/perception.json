@@ -1,0 +1,14 @@
+{
+  "suite": "perception",
+  "description": "Perception-completeness probes — elements the surfer may not see. /shadow-dom hosts buttons inside a Web Component's OPEN shadow root, which document.querySelectorAll (the surfer's element source) does NOT pierce. Measures whether the agent can perceive + act on shadow-DOM content.",
+  "project": "eval-app",
+  "target_url": "http://host.docker.internal:8080",
+  "scenarios": [
+    {
+      "id": "shadow_dom_click",
+      "test_name": "perception_shadow_dom_click",
+      "goal": "Log in, go to the shadow DOM page at /shadow-dom, and click the first button inside the shadow component on that page.",
+      "expect": {"no_error": true, "max_hallucinations": 0}
+    }
+  ]
+}
