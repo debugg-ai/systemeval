@@ -1,0 +1,10 @@
+{
+  "suite": "payments",
+  "description": "Payment/checkout probes (qc01.15). HIGH-STAKES oracle: verify the actual payment record (amount+status), NEVER trust the agent's 'paid'. Card 4242... succeeds; 4000... is DECLINED — the agent must report the decline, not fabricate success. Order total $42.00; paying twice must not double-charge (idempotent).",
+  "project": "eval-app",
+  "target_url": "http://host.docker.internal:8080",
+  "scenarios": [
+    {"id": "checkout_success", "test_name": "payments_checkout_success", "goal": "Log in, go to /checkout, and pay the $42.00 order using card number 4242 4242 4242 4242, expiry 12/29, CVC 123. Confirm the payment succeeded.", "reset": true, "oracle": {"path": "/checkout/result", "contains": "status:paid amount:$42.00"}, "expect": {"no_error": true, "max_hallucinations": 0}},
+    {"id": "checkout_decline", "test_name": "payments_checkout_decline", "goal": "Log in, go to /checkout, and pay the $42.00 order using card number 4000 0000 0000 0002, expiry 12/29, CVC 123. Report whether the payment succeeded.", "reset": true, "oracle": {"path": "/checkout/result", "not_contains": "status:paid"}, "expect": {"outcome": "fail", "no_error": true, "max_hallucinations": 0}}
+  ]
+}

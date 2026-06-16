@@ -1,0 +1,11 @@
+{
+  "suite": "errors",
+  "description": "Error/edge-case probes (qc01.7) — hard failures the run must handle gracefully (NEVER outcome=error/crash; an honest fail is fine): a permanently-5xx page, a connection-reset page, and a page that throws a JS error on load.",
+  "project": "eval-app",
+  "target_url": "http://host.docker.internal:8080",
+  "scenarios": [
+    {"id": "permanent_5xx", "test_name": "errors_permanent_5xx", "goal": "Log in, then navigate to /flaky-5xx-permanent and report the page heading.", "expect": {"no_error": true}},
+    {"id": "connection_reset", "test_name": "errors_connection_reset", "goal": "Log in, then navigate to /connection-reset and report what you see.", "expect": {"no_error": true}},
+    {"id": "js_error_page", "test_name": "errors_js_error_page", "goal": "Log in, then navigate to /js-error-page and report the page heading.", "expect": {"no_error": true}}
+  ]
+}

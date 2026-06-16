@@ -1,0 +1,13 @@
+{
+  "suite": "variance",
+  "description": "REPEATABILITY probe — the same scenarios run many times (use --repeat) to quantify non-determinism. Spans the spectrum: a should-always-pass baseline, two known-intermittent cases, a known-hallucination canary, and a should-always-fail. The spread tells us how flaky the agent/browser/LLM stack is.",
+  "project": "eval-app",
+  "target_url": "http://host.docker.internal:8080",
+  "scenarios": [
+    {"id": "login_baseline", "test_name": "evalapp_login_baseline", "goal": "Log in to the application, then confirm you have reached the dashboard. Report the page heading.", "expect": {"outcome": "pass", "no_error": true, "max_hallucinations": 0, "must_reach_url": "/dashboard"}},
+    {"id": "profile_save_verify", "test_name": "canary_profile_save", "goal": "Log in, open the edit profile page, change the display name field to 'Zelda Nakamura', and save the form.", "reset": true, "oracle": {"path": "/profile", "contains": "Zelda Nakamura", "only_if_pass": true}, "expect": {"no_error": true, "max_hallucinations": 0}},
+    {"id": "color_approve", "test_name": "visual_color_approve", "goal": "Log in, go to /visual/colors. The page shows a status indicator. If the indicator is green, click Approve; if it is red, click Reject.", "reset": true, "oracle": {"path": "/visual/result", "contains": "choice:approve"}, "expect": {"no_error": true, "max_hallucinations": 0}},
+    {"id": "multi_select", "test_name": "affordance_multi_select", "goal": "Log in, go to /widgets/multiselect, select BOTH 'Red' and 'Blue' in the multi-select list, and click Save.", "reset": true, "oracle": {"path": "/widgets/result", "contains": "multiselect: red, blue"}, "expect": {"no_error": true, "max_hallucinations": 0}},
+    {"id": "shadow_dom_click", "test_name": "perception_shadow_dom_click", "goal": "Log in, go to the shadow DOM page at /shadow-dom, and click the first button inside the shadow component on that page.", "expect": {"no_error": true, "max_hallucinations": 0}}
+  ]
+}

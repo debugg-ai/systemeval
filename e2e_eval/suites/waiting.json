@@ -1,0 +1,33 @@
+{
+  "suite": "waiting",
+  "description": "Waiting/settling probes — exercises the surfer.settle waiting-abstraction layer under hostile load. eval-app error-injection fixtures: a transient 5xx that recovers on retry, a tab that hangs forever (DOMContentLoaded never fires + page.goto times out), lazy infinite-scroll content (5 buttons visible, 25 after scrolling), and in-place SPA state transitions with NO URL change. Invariant under ALL of these: the run must NEVER crash (outcome=error) — it settles, retries, or honestly fails.",
+  "project": "eval-app",
+  "target_url": "http://host.docker.internal:8080",
+  "scenarios": [
+    {
+      "id": "flaky_5xx_recover",
+      "test_name": "waiting_flaky_5xx_recover",
+      "goal": "Log in, then navigate to the page at /flaky-5xx-once. It may return a server error on the first attempt — if so, reload and try again until the page loads, then report the heading text you see.",
+      "reset": true,
+      "expect": {"no_error": true, "max_hallucinations": 0}
+    },
+    {
+      "id": "hang_graceful",
+      "test_name": "waiting_hang_graceful",
+      "goal": "Log in, then navigate to the page at /hang-page, wait for it to finish loading, and report the page heading.",
+      "expect": {"no_error": true}
+    },
+    {
+      "id": "infinite_scroll_find",
+      "test_name": "waiting_infinite_scroll_find",
+      "goal": "Log in, navigate to /infinite-scroll, then scroll down to load more items and click the button labeled 'Scroll Item 20'.",
+      "expect": {"no_error": true, "max_hallucinations": 0}
+    },
+    {
+      "id": "spa_state_transition",
+      "test_name": "waiting_spa_state_transition",
+      "goal": "Log in, navigate to /spa-states, click the 'Settings' tab, and confirm the Settings panel is now displayed.",
+      "expect": {"no_error": true, "max_hallucinations": 0}
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "suite": "endurance",
+  "description": "ENDURANCE / step-depth probe — how many sequential actions before the agent degrades or dies. bulk_add asks for 12 tasks added one-at-a-time (~24-36 actions); the oracle checks the LAST one landed, and we count how many actually did. Finds the practical step ceiling.",
+  "project": "eval-app",
+  "target_url": "http://host.docker.internal:8080",
+  "scenarios": [
+    {"id": "bulk_add_12", "test_name": "endurance_bulk_add_12", "goal": "Log in, go to the tasks page, and add these twelve tasks one at a time, in order: 'Task 1', 'Task 2', 'Task 3', 'Task 4', 'Task 5', 'Task 6', 'Task 7', 'Task 8', 'Task 9', 'Task 10', 'Task 11', 'Task 12'. After adding all of them, confirm 'Task 12' is in the list.", "reset": true, "oracle": {"path": "/tasks", "contains": "Task 12"}, "expect": {"no_error": true, "max_hallucinations": 0}}
+  ]
+}

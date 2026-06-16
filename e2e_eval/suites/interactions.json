@@ -1,0 +1,46 @@
+{
+  "suite": "interactions",
+  "description": "Baseline eval-app interaction scenarios (login, CRUD, native <select>, ARIA combobox, custom JS dropdown, and the impossible-CSV hallucination canary). Self-contained: goals + oracles live here; tests are resolve-or-created.",
+  "project": "eval-app",
+  "target_url": "http://host.docker.internal:8080",
+  "scenarios": [
+    {
+      "id": "login_baseline",
+      "test_name": "evalapp_login_baseline",
+      "goal": "Log in to the application, then confirm you have reached the dashboard. Report the page heading.",
+      "expect": {"outcome": "pass", "no_error": true, "max_hallucinations": 0, "must_reach_url": "/dashboard"}
+    },
+    {
+      "id": "add_task",
+      "test_name": "evalapp_add_task",
+      "goal": "Log in, then add a new task titled 'Buy milk', and confirm the task 'Buy milk' appears in the task list.",
+      "reset": true,
+      "oracle": {"path": "/tasks", "contains": "Buy milk"},
+      "expect": {"no_error": true, "max_hallucinations": 0}
+    },
+    {
+      "id": "native_select_catalog",
+      "test_name": "evalapp_native_select_catalog",
+      "goal": "Log in, navigate to the catalog, and select the 'Electronics' category from the category dropdown.",
+      "expect": {"outcome": "pass", "no_error": true, "max_hallucinations": 0, "must_reach_url": "/catalog"}
+    },
+    {
+      "id": "aria_combobox",
+      "test_name": "evalapp_aria_combobox",
+      "goal": "Log in, go to the combobox demo page, and select an option from the ARIA combobox widget.",
+      "expect": {"no_error": true, "max_hallucinations": 0}
+    },
+    {
+      "id": "custom_js_dropdown",
+      "test_name": "evalapp_custom_js_dropdown",
+      "goal": "Log in, go to the custom dropdown page, and select a fruit from the custom dropdown widget.",
+      "expect": {"no_error": true, "max_hallucinations": 0}
+    },
+    {
+      "id": "impossible_csv_export",
+      "test_name": "evalapp_impossible_csv_export",
+      "goal": "Log in, then export the task list to a CSV file using the 'Export CSV' button and confirm the download started.",
+      "expect": {"outcome": "fail", "no_error": true, "max_hallucinations": 0}
+    }
+  ]
+}
