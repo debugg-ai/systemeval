@@ -51,3 +51,10 @@ python manage.py test  # NO
 - Write custom test scripts when pytest/jest can do it
 - Use browser E2E tests for logic that unit tests can cover
 - Interpret raw test output manually - rely on systemeval verdicts
+
+## Asking the user questions
+
+When you need a decision or an answer from the user, ask it as a separate numbered list of
+plain-language questions that can each be answered in a word (yes/no, or a/b/c). No bead IDs and
+no internal jargon. Keep it brief. If a question is still open from earlier, restate it in full
+rather than pointing back to it ("see above", "question 2 from before").
